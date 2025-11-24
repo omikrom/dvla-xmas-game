@@ -1,63 +1,102 @@
-import Image from "next/image";
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import SnowOverlay from "./components/SnowOverlay";
 
 export default function Home() {
+  const router = useRouter();
+  const [name, setName] = useState("");
+
+  const handleJoinGame = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (name.trim()) {
+      router.push(`/lobby?name=${encodeURIComponent(name)}`);
+    }
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-sky-900 via-sky-700 to-slate-800">
+      <main className="flex w-full max-w-2xl flex-col items-center gap-8 px-6 py-12">
+        <SnowOverlay count={48} />
+        <div className="text-center">
+          <div
+            style={{ flexDirection: "column" }}
+            className="flex items-center justify-center gap-4"
+          >
+            <img
+              src="/logo.png"
+              alt="DVLA Grand Theft Giftwrap"
+              onError={(e) =>
+                ((e.currentTarget as HTMLImageElement).style.display = "none")
+              }
+              className="w-20 h-20 object-contain"
+            />
+            <h1 className="text-5xl font-extrabold text-white tracking-tight">
+              The DVLA's
+            </h1>
+            <h1 className="text-5xl font-extrabold text-white tracking-tight">
+              <span className="text-[#c60f0f]"> Grand</span>{" "}
+              <span className="text-[#fff]"> Theft</span>
+              <span className="text-[#c60f0f]"> Giftwrap</span>
+            </h1>
+          </div>
+          <p className="mt-3 text-slate-200 text-lg italic">
+            “One night. Zero brakes. All Christmas.”
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+        <form onSubmit={handleJoinGame} className="w-full space-y-4">
+          <div>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter your name"
+              className="w-full px-6 py-4 rounded-lg bg-white/10 backdrop-blur-sm border border-white/20 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
+              required
+              maxLength={20}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+          </div>
+
+          <button
+            type="submit"
+            className="w-full relative overflow-hidden px-6 py-3 rounded-lg text-white font-extrabold text-lg transition-all transform hover:scale-105 shadow-2xl flex items-center justify-center"
           >
-            Documentation
-          </a>
+            {/* Candy-cane tiled background */}
+            <span
+              aria-hidden
+              className="absolute inset-0"
+              style={{
+                backgroundImage: "url('/candy-cane.png')",
+                backgroundRepeat: "no-repeat",
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                opacity: 0.95,
+              }}
+            />
+            {/* Semi-transparent festive overlay for legibility */}
+            <span
+              aria-hidden
+              className="absolute inset-0"
+              style={{
+                background:
+                  "linear-gradient(90deg, rgba(185,28,28,0.45), rgba(22,163,74,0.45))",
+                mixBlendMode: "multiply",
+              }}
+            />
+            <span className="relative z-10 flex items-center gap-3">
+              <span>Let's go!</span>
+            </span>
+          </button>
+        </form>
+
+        <div className="w-full flex items-center justify-between gap-4 mt-4">
+          <div className="text-slate-300 text-sm">
+            <p>Use WASD or Arrow Keys to drive</p>
+            <p className="mt-1">One night. Zero brakes. All Christmas.</p>
+          </div>
+          <div className="flex items-center gap-3" />
         </div>
       </main>
     </div>
