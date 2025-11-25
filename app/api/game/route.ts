@@ -31,6 +31,7 @@ async function measure<T>(name: string, fn: () => T | Promise<T>) {
 
 export async function POST(request: NextRequest) {
   try {
+    const serverReceiveMs = Date.now();
     const body = await request.json();
     const { playerId, name, steer, throttle } = body;
 
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
         const ok = adoptMatchFromToken(body.matchToken);
         if (ok) {
           // include a quick log for diagnostics
-          console.debug(`[api/game] adopted match token from client`);
+          console.log(`[api/game] adopted match token from client`);
         }
       }
     } catch (e) {}
@@ -102,6 +103,14 @@ export async function POST(request: NextRequest) {
     const powerUpsRes = await measure("getPowerUps", () => getPowerUps());
     const serverFpsRes = await measure("getServerFps", () => getServerFps());
 
+    const serverSendMs = Date.now();
+    const timing = {
+      clientSendMs: body.clientSendTs || null,
+      serverReceiveMs,
+      serverSendMs,
+      processingMs: serverSendMs - serverReceiveMs,
+    };
+
     return NextResponse.json({
       players: serializedPlayers,
       gameState: gameStateRes.result,
@@ -114,6 +123,7 @@ export async function POST(request: NextRequest) {
       serverFps: serverFpsRes.result,
       instanceId: getInstanceId(),
       matchToken: getMatchToken(),
+      timing,
     });
   } catch (error) {
     console.error("Error in game state update:", error);

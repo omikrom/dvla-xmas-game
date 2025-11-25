@@ -237,7 +237,10 @@ export function getInstanceId() {
 // payloads containing `startedAt` and `durationMs`.
 import crypto from "crypto";
 
-const MATCH_SECRET = process.env.MATCH_SECRET || "dev-match-secret";
+// For demo builds we use a stable demo secret so signed tokens validate
+// across simple local deployments. In production you should set
+// `process.env.MATCH_SECRET` to a secure value.
+const MATCH_SECRET = process.env.MATCH_SECRET || "demo-match-secret";
 
 function signPayload(payloadB64: string) {
   return crypto
@@ -283,7 +286,16 @@ export function getMatchToken() {
   try {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
-    return (room as any).currentMatchToken || null;
+    if ((room as any).currentMatchToken) return (room as any).currentMatchToken;
+    // Auto-generate a demo token for convenience when none exists. This
+    // makes `matchToken` available in API responses for diagnostics/demo
+    // environments without requiring an explicit `startRace()` call.
+    const tok = createMatchToken(Date.now(), room.matchDurationMs || MATCH_DURATION_MS);
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    room.currentMatchToken = tok;
+    console.log(`[GameState] Generated demo matchToken=${tok.slice(0,20)}...`);
+    return tok;
   } catch (e) {
     return null;
   }

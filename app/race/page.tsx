@@ -351,6 +351,7 @@ function RaceClient() {
   const interpolatedPositionsRef = useRef<
     Map<string, { x: number; y: number }>
   >(new Map());
+  const matchTokenRef = useRef<string | null>(null);
   const carDamageRef = useRef<Map<string, number>>(new Map());
   const collisionCooldownRef = useRef<Map<string, number>>(new Map());
   const collisionSpeedRef = useRef<Map<string, number>>(new Map());
@@ -695,6 +696,8 @@ function RaceClient() {
             buttonThrottleRef.current
         );
 
+        const clientSendTs = Date.now();
+
         const response = await fetch("/api/game", {
           method: "POST",
           headers: {
@@ -711,11 +714,56 @@ function RaceClient() {
             lastX: interpolatedPositionsRef.current.get(playerId)?.x,
             lastY: interpolatedPositionsRef.current.get(playerId)?.y,
             lastAngle: cars.find((c) => c.id === playerId)?.angle,
+            // Diagnostics: client send timestamp for RTT measurement
+            clientSendTs,
+            // include current matchToken (if any) so other instances can adopt
+            matchToken: matchTokenRef.current,
           }),
         });
 
         if (response.ok) {
           const data = await response.json();
+
+          try {
+            const clientReceiveTs = Date.now();
+
+            console.log("game update", {
+              instanceId: data.instanceId,
+              serverFps: data.serverFps,
+              timing: data.timing,
+            });
+
+            // RTT
+            if (data.timing && data.timing.clientSendMs != null) {
+              const rtt = clientReceiveTs - data.timing.clientSendMs;
+              const processing = data.timing.processingMs ?? null;
+              const approxOneWay =
+                processing != null
+                  ? Math.max(0, (rtt - processing) / 2)
+                  : rtt / 2;
+              console.log("latency", { rtt, processing, approxOneWay });
+            } else {
+              console.log("latency: clientSendTs not present in response/timing");
+            }
+
+            // Position delta: server vs interpolated visual
+            if (playerId) {
+              const serverMe = (data.players || []).find((p: any) => p.id === playerId);
+              const localPos = interpolatedPositionsRef.current.get(playerId);
+              if (serverMe && localPos) {
+                const delta = Math.hypot(serverMe.x - localPos.x, serverMe.y - localPos.y);
+                console.log("position-delta", {
+                  delta,
+                  server: { x: serverMe.x, y: serverMe.y },
+                  visual: localPos,
+                });
+              }
+            }
+          } catch (e) {
+            console.warn("diagnostic logging failed", e);
+          }
+          // persist matchToken from server so we can include it in future requests
+          if (data.matchToken) matchTokenRef.current = data.matchToken;
           // Defensive: deduplicate players by id in case server returns
           // duplicate entries (observed as flickering/dual-render issues).
           const rawPlayers = data.players || [];
