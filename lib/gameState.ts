@@ -147,6 +147,8 @@ type Room = {
   scheduledRepairs?: Map<string, ReturnType<typeof setTimeout>>;
   // periodic repair interval handle (heals players every N ms)
   periodicRepairHandle?: ReturnType<typeof setInterval> | null;
+  // periodic physics interval handle (advances physics/timers independent of client polls)
+  periodicPhysicsHandle?: ReturnType<typeof setInterval> | null;
   leaderboard: Array<{
     id: string;
     name: string;
@@ -172,6 +174,8 @@ const SERVER_REPAIR_AMOUNT = 10; // repair amount (reduce damage by 10)
 // Periodic server heal - runs for all players every X ms
 const SERVER_PERIODIC_REPAIR_MS = 30000; // 30s
 const SERVER_PERIODIC_REPAIR_AMOUNT = 10; // amount healed per tick
+// Periodic server physics tick interval - advances physics & timers
+const SERVER_PERIODIC_PHYSICS_MS = 50; // 50ms -> 20Hz
 const TREE_HEALTH = 45;
 const BUILDING_HEALTH = 360;
 const DELIVERY_SPAWN_POINTS = [
@@ -343,6 +347,21 @@ export function adoptMatchFromToken(token?: string | null) {
         room.lastPhysicsUpdate = Date.now();
         for (const player of room.players.values()) {
           resetPlayerForRace(player);
+        }
+        // Ensure periodic physics tick is running when adopting a match
+        try {
+          if (!room.periodicPhysicsHandle) {
+            room.periodicPhysicsHandle = setInterval(() => {
+              try {
+                updatePhysics();
+              } catch (err) {
+                console.error("[GameState] periodicPhysics interval error:", err);
+              }
+            }, SERVER_PERIODIC_PHYSICS_MS) as unknown as ReturnType<typeof setInterval>;
+            logInfo(`[GameState] periodic physics tick started (${SERVER_PERIODIC_PHYSICS_MS}ms) (adopt)`);
+          }
+        } catch (e) {
+          console.warn("[GameState] failed to start periodic physics tick (adopt):", e);
         }
         // Clear any previously scheduled finalize and schedule a new one
         try {
@@ -748,6 +767,7 @@ const room: Room = {
   gameState: "lobby",
   destructibles: createInitialDestructibles(),
   matchDurationMs: MATCH_DURATION_MS,
+  periodicPhysicsHandle: null,
   leaderboard: [],
   deliveries: createInitialDeliveries(),
   powerUps: [],
@@ -1289,6 +1309,24 @@ export function startRace() {
     }
   } catch (e) {}
 
+  // Start periodic physics tick so the server advances physics/timers
+  // even if clients aren't polling frequently. This prevents timer
+  // and world stagnation when routing or network causes sparse polls.
+  try {
+    if (!room.periodicPhysicsHandle) {
+      room.periodicPhysicsHandle = setInterval(() => {
+        try {
+          updatePhysics();
+        } catch (err) {
+          console.error("[GameState] periodicPhysics interval error:", err);
+        }
+      }, SERVER_PERIODIC_PHYSICS_MS) as unknown as ReturnType<typeof setInterval>;
+      logInfo(`[GameState] periodic physics tick started (${SERVER_PERIODIC_PHYSICS_MS}ms)`);
+    }
+  } catch (e) {
+    console.warn("[GameState] failed to start periodic physics tick", e);
+  }
+
   // Schedule a server-side finalize to ensure the match ends even if
   // clients stop polling the server near the end of the match.
   try {
@@ -1351,6 +1389,16 @@ function finalizeRace() {
     if (room.scheduledFinalize) {
       clearTimeout(room.scheduledFinalize as any);
       room.scheduledFinalize = null;
+    }
+  } catch (e) {}
+
+  // Stop periodic physics tick when the match finishes so we don't keep
+  // advancing physics for a finished match.
+  try {
+    if (room.periodicPhysicsHandle) {
+      clearInterval(room.periodicPhysicsHandle as any);
+      room.periodicPhysicsHandle = null;
+      logInfo("[GameState] periodic physics tick stopped (finalize)");
     }
   } catch (e) {}
 
@@ -1980,6 +2028,14 @@ export function updatePhysics(): PlayerCar[] {
     currentRoom.deliveries = createInitialDeliveries();
     currentRoom.powerUps = [];
     currentRoom.events = [];
+    // Ensure periodic physics is stopped when returning to lobby
+    try {
+      if (currentRoom.periodicPhysicsHandle) {
+        clearInterval(currentRoom.periodicPhysicsHandle as any);
+        currentRoom.periodicPhysicsHandle = null;
+        logInfo("[GameState] periodic physics tick stopped (reset to lobby)");
+      }
+    } catch (e) {}
     // Clear player ready flags so lobby can manage next-start explicitly
     for (const p of currentRoom.players.values()) {
       p.ready = false;
