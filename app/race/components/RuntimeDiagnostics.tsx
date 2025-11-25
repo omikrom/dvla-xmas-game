@@ -21,7 +21,8 @@ export default function RuntimeDiagnostics({
 
   useEffect(() => {
     const update = () => {
-      const d = (typeof window !== "undefined" && (window as any).__GAME_DIAGS) || {};
+      const d =
+        (typeof window !== "undefined" && (window as any).__GAME_DIAGS) || {};
       const debris = (destructibles || []).reduce(
         (acc, d) => acc + (d?.debris?.length || 0),
         0
@@ -51,11 +52,26 @@ export default function RuntimeDiagnostics({
     <div className="absolute right-6 top-16 z-50 pointer-events-none">
       <div className="bg-black/60 text-xs text-white rounded-md p-2 w-56 pointer-events-auto">
         <div className="font-semibold text-sm mb-1">Runtime Diagnostics</div>
-        <div className="flex justify-between"><span>Particle systems</span><span className="font-mono">{stats.particleSystems}</span></div>
-        <div className="flex justify-between"><span>Total particles</span><span className="font-mono">{stats.totalParticles}</span></div>
-        <div className="flex justify-between"><span>Active power-ups</span><span className="font-mono">{stats.powerUps}</span></div>
-        <div className="flex justify-between"><span>Debris pieces</span><span className="font-mono">{stats.debris}</span></div>
-        <div className="flex justify-between"><span>Collision effects</span><span className="font-mono">{stats.collisionEffects}</span></div>
+        <div className="flex justify-between">
+          <span>Particle systems</span>
+          <span className="font-mono">{stats.particleSystems}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Total particles</span>
+          <span className="font-mono">{stats.totalParticles}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Active power-ups</span>
+          <span className="font-mono">{stats.powerUps}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Debris pieces</span>
+          <span className="font-mono">{stats.debris}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Collision effects</span>
+          <span className="font-mono">{stats.collisionEffects}</span>
+        </div>
       </div>
     </div>
   );

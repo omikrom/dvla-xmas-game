@@ -200,7 +200,9 @@ export default function AudioManager() {
         currentAudioRef.current = following;
         await Promise.all([
           fadeVolume(following, 0, 0.7, 900).catch(() => {}),
-          prev ? fadeVolume(prev, prev.volume, 0, 900).catch(() => {}) : Promise.resolve(),
+          prev
+            ? fadeVolume(prev, prev.volume, 0, 900).catch(() => {})
+            : Promise.resolve(),
         ]).catch(() => {});
         try {
           prev && prev.pause();
@@ -210,7 +212,9 @@ export default function AudioManager() {
       // perform crossfade
       await Promise.all([
         fadeVolume(nextAudio, 0, 0.7, 900).catch(() => {}),
-        old ? fadeVolume(old, old.volume, 0, 900).catch(() => {}) : Promise.resolve(),
+        old
+          ? fadeVolume(old, old.volume, 0, 900).catch(() => {})
+          : Promise.resolve(),
       ]).catch(() => {});
       try {
         old && old.pause();
@@ -251,8 +255,10 @@ export default function AudioManager() {
     window.addEventListener("audio:setVolume", handleSetVolume as any);
 
     // debug helpers (kept as named functions so we can remove them cleanly)
-    const dbgLobby = () => IS_DEBUG && console.log("AudioManager: received audio:playLobby");
-    const dbgRacing = () => IS_DEBUG && console.log("AudioManager: received audio:playRacing");
+    const dbgLobby = () =>
+      IS_DEBUG && console.log("AudioManager: received audio:playLobby");
+    const dbgRacing = () =>
+      IS_DEBUG && console.log("AudioManager: received audio:playRacing");
     window.addEventListener("audio:playLobby", dbgLobby);
     window.addEventListener("audio:playRacing", dbgRacing);
 
@@ -277,9 +283,10 @@ export default function AudioManager() {
 
   const enableAudio = useCallback(async () => {
     const cur = currentAudioRef.current;
-      if (cur) {
+    if (cur) {
       try {
-        IS_DEBUG && console.log("AudioManager: enableAudio() invoked — attempting play");
+        IS_DEBUG &&
+          console.log("AudioManager: enableAudio() invoked — attempting play");
         await cur.play();
         setRequiresUserGesture(false);
         await fadeVolume(cur, cur.volume || 0, 0.7, 800).catch(() => {});
@@ -318,10 +325,13 @@ export default function AudioManager() {
   // This helps when autoplay was blocked on mount — a single user gesture
   // anywhere on the page will trigger playback without needing the floating
   // button click specifically.
-    useEffect(() => {
+  useEffect(() => {
     if (!requiresUserGesture) return;
     const onUserGesture = () => {
-      IS_DEBUG && console.log("AudioManager: user interaction detected, attempting resume");
+      IS_DEBUG &&
+        console.log(
+          "AudioManager: user interaction detected, attempting resume"
+        );
       enableAudio();
     };
     window.addEventListener("pointerdown", onUserGesture, { once: true });

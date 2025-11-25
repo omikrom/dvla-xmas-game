@@ -70,7 +70,8 @@ export default function MobileControls({
               className="absolute inset-0 rounded-lg overflow-hidden"
               style={{
                 background: "linear-gradient(180deg,#111827,#0b1220)",
-                boxShadow: "inset 0 6px 14px rgba(0,0,0,0.6), 0 6px 18px rgba(0,0,0,0.6)",
+                boxShadow:
+                  "inset 0 6px 14px rgba(0,0,0,0.6), 0 6px 18px rgba(0,0,0,0.6)",
                 border: "1px solid rgba(255,255,255,0.06)",
               }}
             >
@@ -92,7 +93,7 @@ export default function MobileControls({
                 }}
               >
                 <div
-                  className={`w-full rounded-md bg-gradient-to-b from-green-400 to-emerald-500 shadow-md`} 
+                  className={`w-full rounded-md bg-gradient-to-b from-green-400 to-emerald-500 shadow-md`}
                   style={{
                     height: acceleratorHeld ? 8 : 18,
                     transition: "height 120ms ease",
@@ -125,7 +126,8 @@ export default function MobileControls({
               className="absolute inset-0 rounded-lg overflow-hidden"
               style={{
                 background: "linear-gradient(180deg,#111827,#0b1220)",
-                boxShadow: "inset 0 6px 14px rgba(0,0,0,0.6), 0 6px 18px rgba(0,0,0,0.6)",
+                boxShadow:
+                  "inset 0 6px 14px rgba(0,0,0,0.6), 0 6px 18px rgba(0,0,0,0.6)",
                 border: "1px solid rgba(255,255,255,0.06)",
               }}
             >
@@ -146,7 +148,7 @@ export default function MobileControls({
                 }}
               >
                 <div
-                  className={`w-full rounded-md bg-gradient-to-b from-rose-500 to-red-600 shadow-md`} 
+                  className={`w-full rounded-md bg-gradient-to-b from-rose-500 to-red-600 shadow-md`}
                   style={{
                     height: brakeHeld ? 8 : 18,
                     transition: "height 120ms ease",

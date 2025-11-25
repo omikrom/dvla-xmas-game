@@ -47,7 +47,8 @@ export default function JoystickDebug() {
               {data.ry != null ? data.ry.toFixed(1) : "-"}
             </div>
             <div>
-              relative: {data.relativeX != null ? data.relativeX.toFixed(2) : "-"},
+              relative:{" "}
+              {data.relativeX != null ? data.relativeX.toFixed(2) : "-"},
               {data.relativeY != null ? data.relativeY.toFixed(2) : "-"}
             </div>
             <div>
@@ -55,8 +56,18 @@ export default function JoystickDebug() {
               {data.nextY != null ? data.nextY.toFixed(2) : "-"}
             </div>
             <div>
-              curveRaw: {data.curveRawX != null ? data.curveRawX.toFixed(2) : (data.curveX != null ? data.curveX.toFixed(2) : "-")},
-              {data.curveRawY != null ? data.curveRawY.toFixed(2) : (data.curveY != null ? data.curveY.toFixed(2) : "-")}
+              curveRaw:{" "}
+              {data.curveRawX != null
+                ? data.curveRawX.toFixed(2)
+                : data.curveX != null
+                ? data.curveX.toFixed(2)
+                : "-"}
+              ,
+              {data.curveRawY != null
+                ? data.curveRawY.toFixed(2)
+                : data.curveY != null
+                ? data.curveY.toFixed(2)
+                : "-"}
             </div>
             <div>
               final: {data.finalX != null ? data.finalX.toFixed(2) : "-"},

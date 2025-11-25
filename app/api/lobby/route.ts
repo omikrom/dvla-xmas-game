@@ -29,7 +29,9 @@ export async function POST(request: NextRequest) {
         // update authoritative state so clients see the change immediately
         // (no-op if player doesn't yet exist)
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const gs = await Promise.resolve().then(() => require("@/lib/gameState"));
+        const gs = await Promise.resolve().then(() =>
+          require("@/lib/gameState")
+        );
         if (gs && typeof gs.setPlayerColor === "function") {
           try {
             gs.setPlayerColor(playerId, color);

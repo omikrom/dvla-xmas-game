@@ -1175,8 +1175,14 @@ export function TreeStringLights({
         const b = 0.3 + 1.5 * ((Math.sin(time * 6 + ph) + 1) / 2);
         // mix towards white at peak to give a bright sparkle
         cols[i3] = Math.min(1, base[i3] * b + (1 - base[i3]) * (b - 1));
-        cols[i3 + 1] = Math.min(1, base[i3 + 1] * b + (1 - base[i3 + 1]) * (b - 1));
-        cols[i3 + 2] = Math.min(1, base[i3 + 2] * b + (1 - base[i3 + 2]) * (b - 1));
+        cols[i3 + 1] = Math.min(
+          1,
+          base[i3 + 1] * b + (1 - base[i3 + 1]) * (b - 1)
+        );
+        cols[i3 + 2] = Math.min(
+          1,
+          base[i3 + 2] * b + (1 - base[i3 + 2]) * (b - 1)
+        );
       }
       // mark attribute for update
       const geom = pointsRef.current.geometry as THREE.BufferGeometry;

@@ -240,7 +240,10 @@ import crypto from "crypto";
 const MATCH_SECRET = process.env.MATCH_SECRET || "dev-match-secret";
 
 function signPayload(payloadB64: string) {
-  return crypto.createHmac("sha256", MATCH_SECRET).update(payloadB64).digest("base64");
+  return crypto
+    .createHmac("sha256", MATCH_SECRET)
+    .update(payloadB64)
+    .digest("base64");
 }
 
 export function createMatchToken(startedAt: number, durationMs: number) {
@@ -260,7 +263,9 @@ export function verifyMatchToken(token: string | undefined) {
     const a = Buffer.from(expected);
     const b = Buffer.from(sig);
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-    const payload = JSON.parse(Buffer.from(payloadB64, "base64").toString("utf8"));
+    const payload = JSON.parse(
+      Buffer.from(payloadB64, "base64").toString("utf8")
+    );
     if (
       typeof payload.startedAt === "number" &&
       typeof payload.durationMs === "number"
@@ -289,7 +294,10 @@ export function adoptMatchFromToken(token?: string | null) {
   if (!payload) return false;
   try {
     // Only adopt if we don't already have a later end time
-    if (!room.raceEndTime || room.raceEndTime < payload.startedAt + payload.durationMs) {
+    if (
+      !room.raceEndTime ||
+      room.raceEndTime < payload.startedAt + payload.durationMs
+    ) {
       room.raceStartTime = payload.startedAt;
       room.raceEndTime = payload.startedAt + payload.durationMs;
       room.matchDurationMs = payload.durationMs;
@@ -297,7 +305,11 @@ export function adoptMatchFromToken(token?: string | null) {
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore
       room.currentMatchToken = token;
-      recordSystemEvent(`Adopted match token: start=${new Date(payload.startedAt).toISOString()}`);
+      recordSystemEvent(
+        `Adopted match token: start=${new Date(
+          payload.startedAt
+        ).toISOString()}`
+      );
     }
     return true;
   } catch (e) {
@@ -1013,19 +1025,19 @@ function createInitialDestructibles(): Map<string, Destructible> {
       destroyed: false,
       debris: [],
     },
-      // Central Santa - destructible landmark (kept in defs list; positions for reindeer will be added below)
-      {
-        id: "santa-center",
-        type: "santa",
-        x: 0,
-        y: 0,
-        radius: 6,
-        height: 6,
-        maxHealth: 500,
-        health: 500,
-        destroyed: false,
-        debris: [],
-      },
+    // Central Santa - destructible landmark (kept in defs list; positions for reindeer will be added below)
+    {
+      id: "santa-center",
+      type: "santa",
+      x: 0,
+      y: 0,
+      radius: 6,
+      height: 6,
+      maxHealth: 500,
+      health: 500,
+      destroyed: false,
+      debris: [],
+    },
   ];
 
   // Scatter reindeer across the playable area while avoiding center and other objects
@@ -1039,7 +1051,8 @@ function createInitialDestructibles(): Map<string, Destructible> {
     return Math.random() * (max - min) + min;
   }
 
-  const existingPositions: Array<{ x: number; y: number; radius: number }> = defs.map((d) => ({ x: d.x, y: d.y, radius: d.radius || 1 }));
+  const existingPositions: Array<{ x: number; y: number; radius: number }> =
+    defs.map((d) => ({ x: d.x, y: d.y, radius: d.radius || 1 }));
   const reindeerDefs: Destructible[] = [];
   let attempts = 0;
   while (reindeerDefs.length < REINDEER_COUNT && attempts < MAX_ATTEMPTS) {
@@ -1151,7 +1164,10 @@ export function startRace() {
   // adopt the same race timing without shared state.
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore
-  room.currentMatchToken = createMatchToken(room.raceStartTime, room.matchDurationMs);
+  room.currentMatchToken = createMatchToken(
+    room.raceStartTime,
+    room.matchDurationMs
+  );
   room.destructibles = createInitialDestructibles();
   room.deliveries = createInitialDeliveries();
   room.powerUps = createInitialPowerUps();
@@ -1309,8 +1325,10 @@ export function createOrUpdatePlayer(
     // use that to initialize the player so serverless cold workers that
     // haven't yet seen this player synchronize to the client's location.
     const spawn = findSpawnPosition();
-    const useX = typeof lastKnown?.lastX === "number" ? lastKnown!.lastX! : spawn.x;
-    const useY = typeof lastKnown?.lastY === "number" ? lastKnown!.lastY! : spawn.y;
+    const useX =
+      typeof lastKnown?.lastX === "number" ? lastKnown!.lastX! : spawn.x;
+    const useY =
+      typeof lastKnown?.lastY === "number" ? lastKnown!.lastY! : spawn.y;
     const startAngle =
       typeof lastKnown?.lastAngle === "number"
         ? lastKnown!.lastAngle!
@@ -1413,7 +1431,9 @@ export function repairPlayer(playerId: string, amount: number) {
     player.destroyed = false;
   }
   player.lastUpdate = Date.now();
-  recordSystemEvent(`Repaired ${player.id} by ${amount} (damage ${prev} -> ${player.damage})`);
+  recordSystemEvent(
+    `Repaired ${player.id} by ${amount} (damage ${prev} -> ${player.damage})`
+  );
   return player;
 }
 
@@ -1744,8 +1764,9 @@ export function updatePhysics(): PlayerCar[] {
   // Respect the configured `MAX_INITIAL_POWERUPS` so dynamic logic cannot
   // accidentally reduce the active powerup count below the intended initial
   // maximum (this was causing only 3 powerups to appear in some runs).
-  const carriedCount = room.deliveries.filter((d) => d.state === "carried")
-    .length;
+  const carriedCount = room.deliveries.filter(
+    (d) => d.state === "carried"
+  ).length;
   const maxPowerUps = Math.max(3, MAX_INITIAL_POWERUPS, 3 * carriedCount);
   const activeCount = room.powerUps.filter((p) => !p.collected).length;
   if (activeCount < maxPowerUps) {

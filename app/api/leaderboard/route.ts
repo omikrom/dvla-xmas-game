@@ -38,9 +38,14 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const incoming = normalizeEntries(body && body.leaderboard ? body.leaderboard : body.entries || body);
+    const incoming = normalizeEntries(
+      body && body.leaderboard ? body.leaderboard : body.entries || body
+    );
     if (incoming.length === 0) {
-      return NextResponse.json({ ok: false, message: "No entries provided" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, message: "No entries provided" },
+        { status: 400 }
+      );
     }
 
     // Merge incoming scores into inMemoryLeaderboard, keeping highest score per player
@@ -56,10 +61,15 @@ export async function POST(request: Request) {
     }
 
     // Build sorted array
-    inMemoryLeaderboard = Array.from(map.values()).sort((a, b) => b.score - a.score).slice(0, MAX_ENTRIES);
+    inMemoryLeaderboard = Array.from(map.values())
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_ENTRIES);
 
     return NextResponse.json({ ok: true, leaderboard: inMemoryLeaderboard });
   } catch (err) {
-    return NextResponse.json({ ok: false, message: "Invalid JSON" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, message: "Invalid JSON" },
+      { status: 400 }
+    );
   }
 }

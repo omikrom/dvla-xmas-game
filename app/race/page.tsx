@@ -102,7 +102,10 @@ function FPSCounter({
 
   useEffect(() => {
     let rafId = 0;
-    let visible = typeof document !== "undefined" ? document.visibilityState === "visible" : true;
+    let visible =
+      typeof document !== "undefined"
+        ? document.visibilityState === "visible"
+        : true;
 
     function onVisibilityChange() {
       visible = document.visibilityState === "visible";
@@ -125,7 +128,10 @@ function FPSCounter({
         const sampled = (framesRef.current * 1000) / dt;
         // exponential moving average to smooth spikes between 30/60
         const alpha = 0.25;
-        emaRef.current = emaRef.current == null ? sampled : alpha * sampled + (1 - alpha) * emaRef.current;
+        emaRef.current =
+          emaRef.current == null
+            ? sampled
+            : alpha * sampled + (1 - alpha) * emaRef.current;
         setFps(Math.round(emaRef.current));
         framesRef.current = 0;
         lastRef.current = now;
@@ -204,7 +210,7 @@ function RaceClient() {
       } catch (e) {}
     };
   }, []);
-  
+
   // Procedural ground textures: subtle noise for roughness/bump maps
   const groundTextures = useMemo(() => {
     if (typeof document === "undefined") {
@@ -695,16 +701,16 @@ function RaceClient() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-              playerId,
-              name,
-              steer,
-              throttle,
-              // Send last known interpolated position and angle so any
-              // serverless worker that hasn't seen this player can initialize
-              // them at the client's current location instead of a random spawn.
-              lastX: interpolatedPositionsRef.current.get(playerId)?.x,
-              lastY: interpolatedPositionsRef.current.get(playerId)?.y,
-              lastAngle: cars.find((c) => c.id === playerId)?.angle,
+            playerId,
+            name,
+            steer,
+            throttle,
+            // Send last known interpolated position and angle so any
+            // serverless worker that hasn't seen this player can initialize
+            // them at the client's current location instead of a random spawn.
+            lastX: interpolatedPositionsRef.current.get(playerId)?.x,
+            lastY: interpolatedPositionsRef.current.get(playerId)?.y,
+            lastAngle: cars.find((c) => c.id === playerId)?.angle,
           }),
         });
 
@@ -952,7 +958,9 @@ function RaceClient() {
   // Repair timer for when local player's car is destroyed.
   const REPAIR_DELAY_MS = 20000; // 20 seconds
   const REPAIR_AMOUNT = 10; // reduce damage by 10 (i.e. +10% health)
-  const [repairRemainingMs, setRepairRemainingMs] = useState<number | null>(null);
+  const [repairRemainingMs, setRepairRemainingMs] = useState<number | null>(
+    null
+  );
   const repairTimerRef = useRef<number | null>(null);
   const [repairToast, setRepairToast] = useState<string | null>(null);
 
@@ -1314,7 +1322,7 @@ function RaceClient() {
         } catch (e) {}
         return false;
       })();
-        if (clientDebug) {
+      if (clientDebug) {
         try {
           const canvasEl = glRef.current?.domElement as
             | HTMLCanvasElement
@@ -1459,7 +1467,10 @@ function RaceClient() {
                 <p className="text-sm text-red-400 font-semibold drop-shadow">
                   💥 Your car is totaled!{/* Show repair countdown if active */}
                   {repairRemainingMs !== null ? (
-                    <span> Repairing in {(repairRemainingMs / 1000).toFixed(0)}s</span>
+                    <span>
+                      {" "}
+                      Repairing in {(repairRemainingMs / 1000).toFixed(0)}s
+                    </span>
                   ) : (
                     <span> Auto-heal every 30s</span>
                   )}
@@ -1484,11 +1495,11 @@ function RaceClient() {
           </div>
         </header>
 
-        <RuntimeDiagnostics
+        {/* <RuntimeDiagnostics
           powerUps={powerUps}
           destructibles={destructibles}
           collisionEffects={collisionEffects}
-        />
+        /> */}
 
         <JoystickDebug />
 
@@ -1883,7 +1894,9 @@ Cannot read properties of undefined (reading 'replace')
                           ap.expiresAt > Date.now()
                       ));
                   if (isInvisible && car.id !== playerId) return null;
-                  const damage = (car as any).damagePercent ?? Math.min(car.damage || 0, 100);
+                  const damage =
+                    (car as any).damagePercent ??
+                    Math.min(car.damage || 0, 100);
                   const destroyed = !!car.destroyed;
                   const bodyColor = destroyed
                     ? "#111827"
@@ -2417,7 +2430,11 @@ Cannot read properties of undefined (reading 'replace')
                       <span className="text-red-400 text-xs ml-1">💥</span>
                     ) : (
                       <span className="text-slate-400 text-xs ml-1">
-                        {(((c as any).damagePercent ?? Math.min(c.damage || 0, 100)) as number).toFixed(0)}%
+                        {(
+                          ((c as any).damagePercent ??
+                            Math.min(c.damage || 0, 100)) as number
+                        ).toFixed(0)}
+                        %
                       </span>
                     )}
                   </span>
@@ -2430,67 +2447,75 @@ Cannot read properties of undefined (reading 'replace')
         {/* Speedometer & Damage Indicator */}
         {myCar && (
           <div className="absolute bottom-24 right-8 space-y-3">
-                {/* Speedometer (candy-cane striped border wrapper) */}
-                <div
-                  style={{
-                    padding: 3,
-                    borderRadius: 12,
-                    display: "inline-block",
-                    background:
-                      "repeating-linear-gradient(45deg,#ffffff 0 8px,#ef4444 8px 16px)",
-                  }}
-                >
-                  <div className="bg-slate-900/80 backdrop-blur-sm rounded-xl p-4">
-                    <div className="text-center">
-                      <div className="text-5xl font-bold text-blue-400 mb-1">
-                        {Math.abs(myCar.speed).toFixed(0)}
-                      </div>
-                      <div className="text-xs text-slate-400 uppercase tracking-wider">
-                        {myCar.speed >= 0 ? "Speed" : "Reverse"}
-                      </div>
-                    </div>
+            {/* Speedometer (candy-cane striped border wrapper) */}
+            <div
+              style={{
+                padding: 3,
+                borderRadius: 12,
+                display: "inline-block",
+                background:
+                  "repeating-linear-gradient(45deg,#ffffff 0 8px,#ef4444 8px 16px)",
+              }}
+            >
+              <div className="bg-slate-900/80 backdrop-blur-sm rounded-xl p-4">
+                <div className="text-center">
+                  <div className="text-5xl font-bold text-blue-400 mb-1">
+                    {Math.abs(myCar.speed).toFixed(0)}
+                  </div>
+                  <div className="text-xs text-slate-400 uppercase tracking-wider">
+                    {myCar.speed >= 0 ? "Speed" : "Reverse"}
                   </div>
                 </div>
+              </div>
+            </div>
 
-                {/* Damage Indicator (candy-cane striped border wrapper) */}
-                <div
-                  style={{
-                    padding: 3,
-                    borderRadius: 12,
-                    display: "inline-block",
-                    background:
-                      "repeating-linear-gradient(45deg,#ffffff 0 8px,#ef4444 8px 16px)",
-                  }}
-                >
-                  <div className="bg-slate-900/80 backdrop-blur-sm rounded-xl p-4">
-                    <div className="text-center">
-                      <div
-                        className="text-2xl font-bold mb-1"
-                        style={{
-                          color: myCar.destroyed
-                            ? "#ef4444"
-                            : ((myCar as any).damagePercent ?? Math.min(myCar.damage || 0, 100)) > 70
-                            ? "#ef4444"
-                            : ((myCar as any).damagePercent ?? Math.min(myCar.damage || 0, 100)) > 40
-                            ? "#eab308"
-                            : "#22c55e",
-                        }}
-                      >
-                        {myCar.destroyed
-                          ? "WRECKED"
-                          : `${(((myCar as any).damagePercent ?? Math.min(myCar.damage || 0, 100)) as number).toFixed(0)}%`}
-                      </div>
-                      <div className="text-xs text-slate-400 uppercase tracking-wider">
-                        Damage
-                      </div>
-                      {myCar.destroyed ? (
-                        <div className="text-xs text-red-400 mt-1">Systems offline</div>
-                      ) : ((myCar as any).damagePercent ?? Math.min(myCar.damage || 0, 100)) > 50 ? (
-                        <div className="text-xs text-red-400 mt-1">⚠️ Critical</div>
-                      ) : null}
-                    </div>
+            {/* Damage Indicator (candy-cane striped border wrapper) */}
+            <div
+              style={{
+                padding: 3,
+                borderRadius: 12,
+                display: "inline-block",
+                background:
+                  "repeating-linear-gradient(45deg,#ffffff 0 8px,#ef4444 8px 16px)",
+              }}
+            >
+              <div className="bg-slate-900/80 backdrop-blur-sm rounded-xl p-4">
+                <div className="text-center">
+                  <div
+                    className="text-2xl font-bold mb-1"
+                    style={{
+                      color: myCar.destroyed
+                        ? "#ef4444"
+                        : ((myCar as any).damagePercent ??
+                            Math.min(myCar.damage || 0, 100)) > 70
+                        ? "#ef4444"
+                        : ((myCar as any).damagePercent ??
+                            Math.min(myCar.damage || 0, 100)) > 40
+                        ? "#eab308"
+                        : "#22c55e",
+                    }}
+                  >
+                    {myCar.destroyed
+                      ? "WRECKED"
+                      : `${(
+                          ((myCar as any).damagePercent ??
+                            Math.min(myCar.damage || 0, 100)) as number
+                        ).toFixed(0)}%`}
                   </div>
+                  <div className="text-xs text-slate-400 uppercase tracking-wider">
+                    Damage
+                  </div>
+                  {myCar.destroyed ? (
+                    <div className="text-xs text-red-400 mt-1">
+                      Systems offline
+                    </div>
+                  ) : ((myCar as any).damagePercent ??
+                      Math.min(myCar.damage || 0, 100)) > 50 ? (
+                    <div className="text-xs text-red-400 mt-1">⚠️ Critical</div>
+                  ) : null}
                 </div>
+              </div>
+            </div>
           </div>
         )}
 

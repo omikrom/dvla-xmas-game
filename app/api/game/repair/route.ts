@@ -6,7 +6,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { playerId, amount } = body || {};
     if (!playerId || typeof amount !== "number") {
-      return NextResponse.json({ error: "Missing playerId or amount" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing playerId or amount" },
+        { status: 400 }
+      );
     }
 
     const player = repairPlayer(playerId, amount);
@@ -17,6 +20,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ player });
   } catch (err) {
     console.error("/api/game/repair error:", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
