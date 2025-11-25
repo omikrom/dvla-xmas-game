@@ -10,7 +10,7 @@ import {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { playerId, name, ready } = body;
+    const { playerId, name, ready, color } = body;
 
     if (!playerId || !name) {
       return NextResponse.json(
@@ -21,6 +21,22 @@ export async function POST(request: NextRequest) {
 
     // Update player ready status
     updatePlayerReady(playerId, name, ready);
+    // Update player color if provided
+    if (typeof color === "string" && color.trim()) {
+      try {
+        // lazily import/set to avoid circular issues
+        // setPlayerColor is exported from lib/gameState
+        // update authoritative state so clients see the change immediately
+        // (no-op if player doesn't yet exist)
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const gs = await Promise.resolve().then(() => require("@/lib/gameState"));
+        if (gs && typeof gs.setPlayerColor === "function") {
+          try {
+            gs.setPlayerColor(playerId, color);
+          } catch (e) {}
+        }
+      } catch (e) {}
+    }
 
     // Check if all players are ready and start game
     const currentState = getGameState();

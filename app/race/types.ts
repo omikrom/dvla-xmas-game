@@ -36,7 +36,7 @@ export type DebrisState = {
 
 export type DestructibleState = {
   id: string;
-  type: "tree" | "building";
+  type: "tree" | "building" | "snowman" | "candy" | "santa" | "reindeer";
   x: number;
   y: number;
   radius: number;
@@ -71,6 +71,7 @@ export type DeliveryItem = {
   id: string;
   x: number;
   y: number;
+  z?: number;
   targetX: number;
   targetY: number;
   targetRadius: number;

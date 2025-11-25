@@ -4,7 +4,11 @@ import { RigidBody } from "@react-three/rapier";
 import * as THREE from "three";
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Smoke } from "../../ParticleEffects";
+import {
+  Smoke,
+  ChristmasLightsTwinkle,
+  TreeStringLights,
+} from "../../ParticleEffects";
 
 export type ChristmasTreeProps = {
   id: string;
@@ -84,6 +88,17 @@ export function ChristmasTree({
           emissiveIntensity={0.5}
         />
       </mesh>
+      {/* Twinkling lights around the tree - lightweight particle points */}
+      <group position={[0, 2.2, 0]}>
+        {/* Add an extra lower ring so lights wrap further toward the base */}
+        <TreeStringLights
+          position={[0, -0.65, 0]}
+          scale={0.6}
+          // Taller tiers so the lights reach closer to the tree top
+          tiers={[0.1, 2.4, 3.6, 5]}
+          counts={[6, 8, 8, 6]}
+        />
+      </group>
     </group>
   );
 

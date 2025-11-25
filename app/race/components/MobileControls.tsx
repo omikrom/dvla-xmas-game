@@ -49,12 +49,12 @@ export default function MobileControls({
           />
           <div className="absolute inset-4 rounded-full border border-white/10" />
         </div>
-        <div className="flex gap-3 items-center">
-          <button
-            type="button"
-            className={`px-3 py-2 rounded-2xl min-w-[96px] font-semibold text-white bg-gradient-to-b from-emerald-400 to-green-500 shadow-lg shadow-emerald-500/40 border border-white/10 ${
-              acceleratorHeld ? "scale-95" : ""
-            }`}
+        <div className="flex gap-3 items-end">
+          {/* Accelerator pedal (right) */}
+          <div
+            role="button"
+            aria-label="Accelerator"
+            tabIndex={0}
             onPointerDown={(e) => {
               e.preventDefault();
               setAcceleratorHeld(true);
@@ -64,14 +64,52 @@ export default function MobileControls({
               setAcceleratorHeld(false);
             }}
             onPointerLeave={() => setAcceleratorHeld(false)}
+            className="relative w-24 h-36 touch-none select-none"
           >
-            Accelerator
-          </button>
-          <button
-            type="button"
-            className={`px-3 py-2 rounded-2xl min-w-[96px] font-semibold text-white bg-gradient-to-b from-red-400 to-rose-500 shadow-lg shadow-rose-500/40 border border-white/10 ${
-              brakeHeld ? "scale-95" : ""
-            }`}
+            <div
+              className="absolute inset-0 rounded-lg overflow-hidden"
+              style={{
+                background: "linear-gradient(180deg,#111827,#0b1220)",
+                boxShadow: "inset 0 6px 14px rgba(0,0,0,0.6), 0 6px 18px rgba(0,0,0,0.6)",
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              {/* decorative slats */}
+              <div
+                style={{
+                  position: "absolute",
+                  left: 6,
+                  right: 6,
+                  top: 8,
+                  bottom: 8,
+                  borderRadius: 8,
+                  background:
+                    "repeating-linear-gradient(135deg, rgba(255,255,255,0.03) 0 6px, rgba(0,0,0,0.06) 6px 12px)",
+                  display: "flex",
+                  alignItems: "flex-end",
+                  justifyContent: "center",
+                  paddingBottom: 8,
+                }}
+              >
+                <div
+                  className={`w-full rounded-md bg-gradient-to-b from-green-400 to-emerald-500 shadow-md`} 
+                  style={{
+                    height: acceleratorHeld ? 8 : 18,
+                    transition: "height 120ms ease",
+                    boxShadow: acceleratorHeld
+                      ? "inset 0 2px 6px rgba(0,0,0,0.5)"
+                      : "inset 0 6px 10px rgba(0,0,0,0.6)",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Brake pedal (left) */}
+          <div
+            role="button"
+            aria-label="Brake"
+            tabIndex={0}
             onPointerDown={(e) => {
               e.preventDefault();
               setBrakeHeld(true);
@@ -81,9 +119,45 @@ export default function MobileControls({
               setBrakeHeld(false);
             }}
             onPointerLeave={() => setBrakeHeld(false)}
+            className="relative w-24 h-36 touch-none select-none"
           >
-            Brake
-          </button>
+            <div
+              className="absolute inset-0 rounded-lg overflow-hidden"
+              style={{
+                background: "linear-gradient(180deg,#111827,#0b1220)",
+                boxShadow: "inset 0 6px 14px rgba(0,0,0,0.6), 0 6px 18px rgba(0,0,0,0.6)",
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  left: 6,
+                  right: 6,
+                  top: 8,
+                  bottom: 8,
+                  borderRadius: 8,
+                  background:
+                    "repeating-linear-gradient(135deg, rgba(255,255,255,0.03) 0 6px, rgba(0,0,0,0.06) 6px 12px)",
+                  display: "flex",
+                  alignItems: "flex-end",
+                  justifyContent: "center",
+                  paddingBottom: 8,
+                }}
+              >
+                <div
+                  className={`w-full rounded-md bg-gradient-to-b from-rose-500 to-red-600 shadow-md`} 
+                  style={{
+                    height: brakeHeld ? 8 : 18,
+                    transition: "height 120ms ease",
+                    boxShadow: brakeHeld
+                      ? "inset 0 2px 6px rgba(0,0,0,0.5)"
+                      : "inset 0 6px 10px rgba(0,0,0,0.6)",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

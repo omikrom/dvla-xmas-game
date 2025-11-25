@@ -45,6 +45,7 @@ export default function AudioManager() {
     "/rock-happy-christmas-music-429976.mp3",
   ];
   const racingPlaylist = [
+    "/alexander-nakarada-carol-of-the-bells-metal-version.mp3",
     "/electric-christmas-rumble-262180.mp3",
     "/rock-n-christmas-80s-127420.mp3",
     "/rock-happy-christmas-music-429976.mp3",
@@ -170,6 +171,49 @@ export default function AudioManager() {
       }
     };
 
+    const handleNext = async () => {
+      // advance index and crossfade to next track
+      if (!playlistRef.current || playlistRef.current.length === 0) return;
+      indexRef.current = (indexRef.current + 1) % playlistRef.current.length;
+      const nextSrc = playlistRef.current[indexRef.current];
+      const nextAudio = new Audio(nextSrc);
+      nextAudio.volume = 0;
+      // attempt to play next (may fail if autoplay is blocked)
+      try {
+        await nextAudio.play();
+      } catch (e) {
+        // ignore play failures — we'll still attempt a swap
+      }
+      const old = currentAudioRef.current;
+      currentAudioRef.current = nextAudio;
+      // set ended handler to continue playlist
+      nextAudio.onended = async () => {
+        if (!mountedRef.current) return;
+        indexRef.current = (indexRef.current + 1) % playlistRef.current.length;
+        const following = new Audio(playlistRef.current[indexRef.current]);
+        following.volume = 0;
+        following.play().catch(() => {});
+        const prev = currentAudioRef.current;
+        currentAudioRef.current = following;
+        await Promise.all([
+          fadeVolume(following, 0, 0.7, 900).catch(() => {}),
+          prev ? fadeVolume(prev, prev.volume, 0, 900).catch(() => {}) : Promise.resolve(),
+        ]).catch(() => {});
+        try {
+          prev && prev.pause();
+        } catch (e) {}
+        following.onended = nextAudio.onended;
+      };
+      // perform crossfade
+      await Promise.all([
+        fadeVolume(nextAudio, 0, 0.7, 900).catch(() => {}),
+        old ? fadeVolume(old, old.volume, 0, 900).catch(() => {}) : Promise.resolve(),
+      ]).catch(() => {});
+      try {
+        old && old.pause();
+      } catch (e) {}
+    };
+
     const handleSetVolume = async (ev: any) => {
       try {
         const detail = ev.detail || {};
@@ -200,6 +244,7 @@ export default function AudioManager() {
     window.addEventListener("audio:playRacing", handlePlayRacing);
     window.addEventListener("audio:stop", handleStop as any);
     window.addEventListener("audio:toggle", handleToggle as any);
+    window.addEventListener("audio:next", handleNext as any);
     window.addEventListener("audio:setVolume", handleSetVolume as any);
 
     // debug helpers (kept as named functions so we can remove them cleanly)
@@ -216,6 +261,7 @@ export default function AudioManager() {
       window.removeEventListener("audio:playRacing", handlePlayRacing);
       window.removeEventListener("audio:stop", handleStop as any);
       window.removeEventListener("audio:toggle", handleToggle as any);
+      window.removeEventListener("audio:next", handleNext as any);
       window.removeEventListener("audio:setVolume", handleSetVolume as any);
       window.removeEventListener("audio:playLobby", dbgLobby);
       window.removeEventListener("audio:playRacing", dbgRacing);

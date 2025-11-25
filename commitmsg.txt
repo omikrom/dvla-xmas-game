@@ -1,0 +1,6 @@
+﻿feat: make Santa & reindeer destructible, scatter reindeer, UI & control polish
+
+- Integrate 'santa' and 'reindeer' into server destructible system so they have authoritative health, debris and collision handling.
+- Add central 'santa-center' destructible; scatter N reindeer server-side in createInitialDestructibles() while avoiding the center, static obstacles, and overlapping objects.
+- Render 'Santa' and 'Reindeer' from DestructibleField (client) so visuals and debris follow server state; remove manual/duplicate client placements.
+- Tweak Santa visuals, add reindeer prop, update UI and controls, and update types.

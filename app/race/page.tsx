@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import {
   Environment,
@@ -11,7 +13,15 @@ import { Physics, RigidBody, CuboidCollider } from "@react-three/rapier";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { EffectComposer, Bloom } from "@react-three/postprocessing";
+import {
+  EffectComposer,
+  Bloom,
+  DepthOfField,
+  ChromaticAberration,
+  Vignette,
+  Noise,
+  SMAA,
+} from "@react-three/postprocessing";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type {
   PlayerCar,
@@ -41,6 +51,8 @@ import DVLABuilding from "./assets/DVLABuilding";
 import MyBuilding from "./assets/MyBuilding";
 import { DestructibleField } from "./assets/scenery/DestructibleField";
 import { ChristmasTree } from "./assets/scenery/props/ChristmasTree";
+import { Santa } from "./assets/scenery/props/Santa";
+import { Reindeer } from "./assets/scenery/props/Reindeer";
 import { CarModel } from "./assets/Car";
 import { Fire, Smoke, Sparks, Snow } from "./assets/ParticleEffects";
 import PowerUp from "./assets/PowerUp";
@@ -49,6 +61,8 @@ import InterpolatedCar from "./components/InterpolatedCar";
 import FollowCamera from "./components/FollowCamera";
 import DebugPanel from "./components/DebugPanel";
 import MobileControls from "./components/MobileControls";
+import RuntimeDiagnostics from "./components/RuntimeDiagnostics";
+import JoystickDebug from "./components/JoystickDebug";
 import usePowerUps from "./hooks/usePowerUps";
 import useInitializePowerUps from "./hooks/useInitializePowerUps";
 import usePowerupVisuals from "./hooks/usePowerupVisuals";
@@ -75,24 +89,48 @@ function FPSCounter({
 }) {
   const [fps, setFps] = useState<number>(0);
   const framesRef = useRef(0);
-  const lastRef = useRef<number>(Date.now());
+  const lastRef = useRef<number>(performance.now());
+  const emaRef = useRef<number | null>(null);
 
   useEffect(() => {
-    let rafId: number;
+    let rafId = 0;
+    let visible = typeof document !== "undefined" ? document.visibilityState === "visible" : true;
+
+    function onVisibilityChange() {
+      visible = document.visibilityState === "visible";
+      // reset counters when hidden so we don't get skewed samples
+      if (!visible) {
+        framesRef.current = 0;
+        lastRef.current = performance.now();
+      }
+    }
+
     function loop() {
+      if (!visible) {
+        rafId = requestAnimationFrame(loop);
+        return;
+      }
       framesRef.current++;
-      const now = Date.now();
+      const now = performance.now();
       const dt = now - lastRef.current;
       if (dt >= interval) {
-        const sampled = Math.round((framesRef.current * 1000) / dt);
-        setFps(sampled);
+        const sampled = (framesRef.current * 1000) / dt;
+        // exponential moving average to smooth spikes between 30/60
+        const alpha = 0.25;
+        emaRef.current = emaRef.current == null ? sampled : alpha * sampled + (1 - alpha) * emaRef.current;
+        setFps(Math.round(emaRef.current));
         framesRef.current = 0;
         lastRef.current = now;
       }
       rafId = requestAnimationFrame(loop);
     }
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
     rafId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafId);
+    return () => {
+      cancelAnimationFrame(rafId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [interval]);
 
   return (
@@ -103,8 +141,63 @@ function FPSCounter({
 }
 
 function RaceClient() {
+  // Runtime mount/diagnostic instrumentation to help detect leaks when
+  // navigating away/returning. Controlled by `window.__GAME_DEBUG__`.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    (window as any).__RACE_MOUNTS = (window as any).__RACE_MOUNTS || 0;
+    (window as any).__RACE_MOUNTS++;
+    let loggerId: number | undefined;
+    if ((window as any).__GAME_DEBUG__) {
+      loggerId = window.setInterval(() => {
+        try {
+          const diags = (window as any).__GAME_DIAGS || {};
+          // Count canvases and nodes under the game canvas to spot duplicates
+          const canvases = document.querySelectorAll("canvas").length;
+          const gameNodes = document.querySelectorAll(".game-canvas *").length;
+          // Log compact summary
+          // eslint-disable-next-line no-console
+          console.log(
+            "[RACE_DIAGS] mounts=",
+            (window as any).__RACE_MOUNTS,
+            "canvases=",
+            canvases,
+            "gameNodes=",
+            gameNodes,
+            "particleSystems=",
+            diags.particleSystems || 0,
+            "totalParticles=",
+            diags.totalParticles || 0,
+            "powerUps=",
+            (window as any).__GAME_POWERUPS_COUNT || 0
+          );
+        } catch (e) {}
+      }, 3000) as unknown as number;
+    }
+    return () => {
+      (window as any).__RACE_MOUNTS = Math.max(
+        0,
+        ((window as any).__RACE_MOUNTS || 1) - 1
+      );
+      if (loggerId) window.clearInterval(loggerId);
+    };
+  }, []);
+  
   // Procedural ground textures: subtle noise for roughness/bump maps
   const groundTextures = useMemo(() => {
+    if (typeof document === "undefined") {
+      const placeholder = new THREE.Texture();
+      return {
+        map: placeholder,
+        bumpMap: placeholder,
+        roughnessMap: placeholder,
+      } as {
+        map: THREE.Texture;
+        bumpMap: THREE.Texture;
+        roughnessMap: THREE.Texture;
+      };
+    }
+
     const size = 1024;
     const canvas = document.createElement("canvas");
     canvas.width = size;
@@ -294,7 +387,8 @@ function RaceClient() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const activeTag =
-        (document.activeElement &&
+        (typeof document !== "undefined" &&
+          document.activeElement &&
           (document.activeElement as HTMLElement).tagName) ||
         "";
       if (activeTag === "INPUT" || activeTag === "TEXTAREA") return;
@@ -391,23 +485,48 @@ function RaceClient() {
     // Map client coordinates through rotator when portrait-rotated so touch positions match visuals
     let clientX = event.clientX;
     let clientY = event.clientY;
+    // Prepare debug variables
+    let cx = 0;
+    let cy = 0;
+    let dx = 0;
+    let dy = 0;
+    let rx = 0;
+    let ry = 0;
     if (isMobile && isPortrait && rotatorRef.current) {
       const r = rotatorRef.current.getBoundingClientRect();
-      const cx = r.left + r.width / 2;
-      const cy = r.top + r.height / 2;
-      const dx = event.clientX - cx;
-      const dy = event.clientY - cy;
+      cx = r.left + r.width / 2;
+      cy = r.top + r.height / 2;
+      dx = event.clientX - cx;
+      dy = event.clientY - cy;
       // inverse rotate by -90deg: cos(-90)=0, sin(-90)=-1
-      const rx = dy; // dx*0 - dy*(-1) => dy
-      const ry = -dx; // dx*(-1) + dy*0 => -dx
+      rx = dy; // dx*0 - dy*(-1) => dy
+      ry = -dx; // dx*(-1) + dy*0 => -dx
       clientX = rx + cx;
       clientY = ry + cy;
+    } else {
+      // set center based on base rect when not rotated
+      const r = base.getBoundingClientRect();
+      cx = r.left + r.width / 2;
+      cy = r.top + r.height / 2;
+      dx = event.clientX - cx;
+      dy = event.clientY - cy;
     }
     const rect = base.getBoundingClientRect();
     const relativeX =
       (clientX - (rect.left + rect.width / 2)) / (rect.width / 2);
-    const relativeY =
+    let relativeY =
       (clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
+    // When simulating mobile with a mouse, invert Y so dragging up yields
+    // a forward (negative-by-coordinate) joystick value matching touch input.
+    try {
+      // React PointerEvent exposes `pointerType` ("mouse" | "touch" | "pen")
+      // Use it to correct mouse input when `isMobile` is active.
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      if (event && event.pointerType === "mouse" && isMobile) {
+        relativeY = -relativeY;
+      }
+    } catch (e) {}
     let nextX = clamp(relativeX, -1, 1);
     let nextY = clamp(relativeY, -1, 1);
     const magnitude = Math.hypot(nextX, nextY);
@@ -415,7 +534,54 @@ function RaceClient() {
       nextX /= magnitude;
       nextY /= magnitude;
     }
-    return { x: nextX, y: nextY };
+
+    // Deadzone + exponential curve to make throttle control less jumpy and
+    // allow smooth reversing. Small touches around center are ignored.
+    const DEADZONE = 0.12;
+    const curve = (v: number) => {
+      const s = Math.sign(v);
+      const a = Math.abs(v);
+      if (a <= DEADZONE) return 0;
+      const scaled = (a - DEADZONE) / (1 - DEADZONE);
+      // exponent >1 gives finer low-end control
+      return s * Math.pow(scaled, 1.5);
+    };
+
+    // Expose debug info to window for the JoystickDebug overlay (dev only)
+    try {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      window.__JOYSTICK_DEBUG__ = {
+        pointerType: (event as any)?.pointerType || "unknown",
+        clientX,
+        clientY,
+        cx:
+          (rotatorRef.current?.getBoundingClientRect().left ?? 0) +
+          (rotatorRef.current?.getBoundingClientRect().width ?? 0) / 2,
+        cy:
+          (rotatorRef.current?.getBoundingClientRect().top ?? 0) +
+          (rotatorRef.current?.getBoundingClientRect().height ?? 0) / 2,
+        dx,
+        dy,
+        rx: typeof rx !== "undefined" ? rx : 0,
+        ry: typeof ry !== "undefined" ? ry : 0,
+        relativeX,
+        relativeY,
+        nextX,
+        nextY,
+        // show raw curve values and the final output after any axis inversion
+        curveRawX: curve(nextX),
+        curveRawY: curve(nextY),
+        finalX: curve(nextX),
+        finalY: curve(nextY),
+      };
+    } catch (e) {}
+
+    // Horizontal axis: positive = right, negative = left — keep this
+    // convention so keyboard and joystick align consistently.
+    const finalX = curve(nextX);
+    const finalY = curve(nextY);
+    return { x: finalX, y: finalY };
   };
 
   const handleJoystickPointerDown = (
@@ -485,9 +651,11 @@ function RaceClient() {
 
     const updateInterval = setInterval(async () => {
       try {
+        // Standardize steering signs: left = -1, right = +1 so joystick X
+        // (positive = right) matches keyboard inputs.
         const keyboardSteer =
-          (keys.ArrowLeft || keys.a ? 1 : 0) +
-          (keys.ArrowRight || keys.d ? -1 : 0);
+          (keys.ArrowLeft || keys.a ? -1 : 0) +
+          (keys.ArrowRight || keys.d ? 1 : 0);
         const keyboardThrottle =
           (keys.ArrowUp || keys.w ? 1 : 0) +
           (keys.ArrowDown || keys.s ? -0.5 : 0);
@@ -570,6 +738,23 @@ function RaceClient() {
             } else {
               window.dispatchEvent(new CustomEvent("audio:playLobby"));
             }
+            // If the game has just finished, POST the final leaderboard to the instance leaderboard API
+            try {
+              if (newState === "finished") {
+                (async () => {
+                  try {
+                    const body = { leaderboard: data.leaderboard || [] };
+                    await fetch("/api/leaderboard", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(body),
+                    });
+                  } catch (e) {
+                    // ignore network errors
+                  }
+                })();
+              }
+            } catch (e) {}
           }
           setTimerState(data.timer || null);
           setLeaderboard(data.leaderboard || []);
@@ -728,6 +913,95 @@ function RaceClient() {
     return map;
   }, [cars]);
 
+  // Repair timer for when local player's car is destroyed.
+  const REPAIR_DELAY_MS = 20000; // 20 seconds
+  const REPAIR_AMOUNT = 10; // reduce damage by 10 (i.e. +10% health)
+  const [repairRemainingMs, setRepairRemainingMs] = useState<number | null>(null);
+  const repairTimerRef = useRef<number | null>(null);
+  const [repairToast, setRepairToast] = useState<string | null>(null);
+
+  const requestRepair = async (amount = REPAIR_AMOUNT) => {
+    if (!playerId) return;
+    try {
+      const res = await fetch("/api/game/repair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerId, amount }),
+      });
+      if (res.ok) {
+        setRepairToast(`Requested repair +${amount}%`);
+        setTimeout(() => setRepairToast(null), 3000);
+      } else {
+        setRepairToast("Repair request failed");
+        setTimeout(() => setRepairToast(null), 3000);
+      }
+    } catch (e) {
+      setRepairToast("Repair request error");
+      setTimeout(() => setRepairToast(null), 3000);
+    }
+    // clear any scheduled countdown/timer
+    setRepairRemainingMs(null);
+    if (repairTimerRef.current) {
+      window.clearInterval(repairTimerRef.current);
+      repairTimerRef.current = null;
+    }
+  };
+
+  // Start/stop the 20s repair countdown when local player's destroyed state changes
+  useEffect(() => {
+    if (!playerId) return;
+    if (myCar && myCar.destroyed) {
+      // start countdown
+      setRepairRemainingMs(REPAIR_DELAY_MS);
+      if (repairTimerRef.current) window.clearInterval(repairTimerRef.current);
+      repairTimerRef.current = window.setInterval(() => {
+        setRepairRemainingMs((prev) => {
+          if (prev === null) return prev;
+          const next = prev - 1000;
+          if (next <= 0) return 0;
+          return next;
+        });
+      }, 1000) as unknown as number;
+    } else {
+      // clear if repaired or no longer destroyed
+      setRepairRemainingMs(null);
+      if (repairTimerRef.current) {
+        window.clearInterval(repairTimerRef.current);
+        repairTimerRef.current = null;
+      }
+    }
+    return () => {
+      if (repairTimerRef.current) {
+        window.clearInterval(repairTimerRef.current);
+        repairTimerRef.current = null;
+      }
+    };
+  }, [playerId, myCar?.destroyed]);
+
+  // When countdown reaches zero, call server to apply repair
+  useEffect(() => {
+    if (repairRemainingMs === null) return;
+    if (repairRemainingMs > 0) return;
+    // perform repair once
+    (async () => {
+      try {
+        await fetch("/api/game/repair", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ playerId, amount: REPAIR_AMOUNT }),
+        });
+      } catch (e) {
+        // ignore network errors; server will correct state on next poll
+      } finally {
+        setRepairRemainingMs(null);
+        if (repairTimerRef.current) {
+          window.clearInterval(repairTimerRef.current);
+          repairTimerRef.current = null;
+        }
+      }
+    })();
+  }, [repairRemainingMs, playerId]);
+
   // NOTE: visual pickup effects are handled by `usePowerupVisuals` hook.
 
   useEffect(() => {
@@ -873,6 +1147,10 @@ function RaceClient() {
   });
   const glRef = useRef<THREE.WebGLRenderer | null>(null);
 
+  // Postprocessing feature flags - disabled by default to avoid accidental heavy blur
+  const [enableChromatic, setEnableChromatic] = useState<boolean>(false);
+  const [enableDoF, setEnableDoF] = useState<boolean>(false);
+
   useEffect(() => {
     const gl = glRef.current;
     if (!gl) return;
@@ -890,6 +1168,38 @@ function RaceClient() {
       gl.setSize(canvasSize.w || 1, canvasSize.h || 1, true);
     }
   }, [canvasSize]);
+
+  // Ensure three.js renderer is disposed when this page unmounts to avoid
+  // leaking WebGL contexts / RAF loops when navigating away and back.
+  useEffect(() => {
+    return () => {
+      try {
+        const gl = glRef.current as any;
+        if (gl) {
+          console.log("Disposing WebGL renderer on unmount");
+          try {
+            const canvas = gl.domElement as HTMLCanvasElement | undefined;
+            if (canvas) {
+              // attempt to remove canvas from DOM to fully relinquish context
+              if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+            }
+          } catch (e) {}
+          try {
+            // force context loss then dispose renderer
+            if (typeof gl.forceContextLoss === "function") {
+              gl.forceContextLoss();
+            }
+          } catch (e) {}
+          try {
+            if (typeof gl.dispose === "function") gl.dispose();
+          } catch (e) {}
+          glRef.current = null;
+        }
+      } catch (err) {
+        console.warn("Error disposing GL on unmount:", err);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!mainRef.current) return;
@@ -978,7 +1288,10 @@ function RaceClient() {
           );
           console.log("rotRect:", rotatorRef.current?.getBoundingClientRect());
           console.log("observedRect:", getObservedEl().getBoundingClientRect());
-          console.log("visualViewport:", (window as any).visualViewport || null);
+          console.log(
+            "visualViewport:",
+            (window as any).visualViewport || null
+          );
           if (canvasEl)
             console.log(
               "canvas.domRect:",
@@ -1097,16 +1410,29 @@ function RaceClient() {
             {/* Map import/export buttons removed: maps are static in code */}
             <div>
               <h1 className="text-2xl font-bold drop-shadow-lg">
-                🏎️ DVLA Christmas Rally
+                Grand Theft Giftwrap
               </h1>
               <p className="text-sm text-slate-300 drop-shadow">{name}</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
             {myCar?.destroyed && (
-              <p className="text-sm text-red-400 font-semibold drop-shadow mr-4">
-                💥 Your car is totaled! Spectate until repairs complete.
-              </p>
+              <div className="flex items-center gap-2 mr-4">
+                <p className="text-sm text-red-400 font-semibold drop-shadow">
+                  💥 Your car is totaled!{/* Show repair countdown if active */}
+                  {repairRemainingMs !== null ? (
+                    <span> Repairing in {(repairRemainingMs / 1000).toFixed(0)}s</span>
+                  ) : (
+                    <span> Auto-heal every 30s</span>
+                  )}
+                </p>
+                <button
+                  onClick={() => requestRepair()}
+                  className="px-2 py-1 text-xs rounded bg-emerald-500 hover:bg-emerald-600"
+                >
+                  Repair now
+                </button>
+              </div>
             )}
             <div className="text-xs text-slate-300 drop-shadow flex items-center gap-4">
               <span>Controls: WASD / Arrow Keys</span>
@@ -1119,6 +1445,23 @@ function RaceClient() {
             </div>
           </div>
         </header>
+
+        <RuntimeDiagnostics
+          powerUps={powerUps}
+          destructibles={destructibles}
+          collisionEffects={collisionEffects}
+        />
+
+        <JoystickDebug />
+
+        {/* Repair toast */}
+        {repairToast && (
+          <div className="absolute top-4 right-4 z-40">
+            <div className="px-3 py-2 rounded bg-emerald-600 text-white text-sm">
+              {repairToast}
+            </div>
+          </div>
+        )}
 
         {/* Collected powerup toast removed — HUD displays active power-ups now. */}
 
@@ -1358,6 +1701,15 @@ function RaceClient() {
                   intensity={0.55}
                   radius={0.45}
                 />
+                {/* // Runtime TypeError
+Cannot read properties of undefined (reading 'replace')
+                <ChromaticAberration
+                  blendFunction={1}
+                  offset={[0.0006, 0.0012]}
+                /> */}
+                <Vignette eskil={false} offset={0.35} darkness={0.5} />
+                <Noise opacity={0.03} />
+                <SMAA />
               </EffectComposer>
 
               {/* Soft contact shadows for objects on the ground */}
@@ -1464,9 +1816,11 @@ function RaceClient() {
                   />
                 ))}
 
+                {/* Santa and reindeer are rendered from server destructibles via `DestructibleField` */}
+
                 {/* Map shapes: runtime import removed. Use static map modules when needed. */}
 
-                <DVLABuilding />
+                {/* <DVLABuilding /> */}
                 {/* Custom model from ModelBuilder (temporary test placement) - removed
                       to avoid static duplicates. Destructibles will render MyBuilding
                       via `DestructibleField`. */}
@@ -1491,7 +1845,7 @@ function RaceClient() {
                           ap.expiresAt > Date.now()
                       ));
                   if (isInvisible && car.id !== playerId) return null;
-                  const damage = car.damage || 0;
+                  const damage = (car as any).damagePercent ?? Math.min(car.damage || 0, 100);
                   const destroyed = !!car.destroyed;
                   const bodyColor = destroyed
                     ? "#111827"
@@ -1505,7 +1859,7 @@ function RaceClient() {
                     : "#111827";
 
                   const isReversing =
-                    car.id === playerId && joystick.active && joystick.y < -0.3;
+                    car.id === playerId && joystick.active && joystick.y > 0.3;
 
                   return (
                     <InterpolatedCar
@@ -2025,7 +2379,7 @@ function RaceClient() {
                       <span className="text-red-400 text-xs ml-1">💥</span>
                     ) : (
                       <span className="text-slate-400 text-xs ml-1">
-                        {(c.damage || 0).toFixed(0)}%
+                        {(((c as any).damagePercent ?? Math.min(c.damage || 0, 100)) as number).toFixed(0)}%
                       </span>
                     )}
                   </span>
@@ -2038,59 +2392,67 @@ function RaceClient() {
         {/* Speedometer & Damage Indicator */}
         {myCar && (
           <div className="absolute bottom-24 right-8 space-y-3">
-            {/* Speedometer */}
-            <div className="bg-slate-900/80 backdrop-blur-sm rounded-xl p-4 border-2 border-blue-500/50">
-              <div className="text-center">
-                <div className="text-5xl font-bold text-blue-400 mb-1">
-                  {Math.abs(myCar.speed).toFixed(0)}
-                </div>
-                <div className="text-xs text-slate-400 uppercase tracking-wider">
-                  {myCar.speed >= 0 ? "Speed" : "Reverse"}
-                </div>
-              </div>
-            </div>
-
-            {/* Damage Indicator */}
-            <div
-              className={`bg-slate-900/80 backdrop-blur-sm rounded-xl p-4 border-2 ${
-                myCar.destroyed
-                  ? "border-red-600/80"
-                  : (myCar.damage || 0) > 70
-                  ? "border-red-500/80"
-                  : (myCar.damage || 0) > 40
-                  ? "border-yellow-500/80"
-                  : "border-green-500/50"
-              }`}
-            >
-              <div className="text-center">
+                {/* Speedometer (candy-cane striped border wrapper) */}
                 <div
-                  className="text-2xl font-bold mb-1"
                   style={{
-                    color: myCar.destroyed
-                      ? "#ef4444"
-                      : (myCar.damage || 0) > 70
-                      ? "#ef4444"
-                      : (myCar.damage || 0) > 40
-                      ? "#eab308"
-                      : "#22c55e",
+                    padding: 3,
+                    borderRadius: 12,
+                    display: "inline-block",
+                    background:
+                      "repeating-linear-gradient(45deg,#ffffff 0 8px,#ef4444 8px 16px)",
                   }}
                 >
-                  {myCar.destroyed
-                    ? "WRECKED"
-                    : `${(myCar.damage || 0).toFixed(0)}%`}
-                </div>
-                <div className="text-xs text-slate-400 uppercase tracking-wider">
-                  Damage
-                </div>
-                {myCar.destroyed ? (
-                  <div className="text-xs text-red-400 mt-1">
-                    Systems offline
+                  <div className="bg-slate-900/80 backdrop-blur-sm rounded-xl p-4">
+                    <div className="text-center">
+                      <div className="text-5xl font-bold text-blue-400 mb-1">
+                        {Math.abs(myCar.speed).toFixed(0)}
+                      </div>
+                      <div className="text-xs text-slate-400 uppercase tracking-wider">
+                        {myCar.speed >= 0 ? "Speed" : "Reverse"}
+                      </div>
+                    </div>
                   </div>
-                ) : (myCar.damage || 0) > 50 ? (
-                  <div className="text-xs text-red-400 mt-1">⚠️ Critical</div>
-                ) : null}
-              </div>
-            </div>
+                </div>
+
+                {/* Damage Indicator (candy-cane striped border wrapper) */}
+                <div
+                  style={{
+                    padding: 3,
+                    borderRadius: 12,
+                    display: "inline-block",
+                    background:
+                      "repeating-linear-gradient(45deg,#ffffff 0 8px,#ef4444 8px 16px)",
+                  }}
+                >
+                  <div className="bg-slate-900/80 backdrop-blur-sm rounded-xl p-4">
+                    <div className="text-center">
+                      <div
+                        className="text-2xl font-bold mb-1"
+                        style={{
+                          color: myCar.destroyed
+                            ? "#ef4444"
+                            : ((myCar as any).damagePercent ?? Math.min(myCar.damage || 0, 100)) > 70
+                            ? "#ef4444"
+                            : ((myCar as any).damagePercent ?? Math.min(myCar.damage || 0, 100)) > 40
+                            ? "#eab308"
+                            : "#22c55e",
+                        }}
+                      >
+                        {myCar.destroyed
+                          ? "WRECKED"
+                          : `${(((myCar as any).damagePercent ?? Math.min(myCar.damage || 0, 100)) as number).toFixed(0)}%`}
+                      </div>
+                      <div className="text-xs text-slate-400 uppercase tracking-wider">
+                        Damage
+                      </div>
+                      {myCar.destroyed ? (
+                        <div className="text-xs text-red-400 mt-1">Systems offline</div>
+                      ) : ((myCar as any).damagePercent ?? Math.min(myCar.damage || 0, 100)) > 50 ? (
+                        <div className="text-xs text-red-400 mt-1">⚠️ Critical</div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
           </div>
         )}
 

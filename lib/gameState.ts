@@ -27,7 +27,13 @@ export type PlayerCar = {
   }>;
 };
 
-type DestructibleType = "tree" | "building" | "snowman" | "candy";
+type DestructibleType =
+  | "tree"
+  | "building"
+  | "snowman"
+  | "candy"
+  | "santa"
+  | "reindeer";
 type ImpactZone = "front" | "rear" | "left" | "right";
 
 type DebrisChunk = {
@@ -135,6 +141,12 @@ type Room = {
   matchDurationMs: number;
   raceStartTime?: number;
   raceEndTime?: number;
+  // server-side timeout handle to ensure finalizeRace runs even if no client polls
+  scheduledFinalize?: ReturnType<typeof setTimeout> | null;
+  // scheduled repairs for destroyed players (playerId -> timeout handle)
+  scheduledRepairs?: Map<string, ReturnType<typeof setTimeout>>;
+  // periodic repair interval handle (heals players every N ms)
+  periodicRepairHandle?: ReturnType<typeof setInterval> | null;
   leaderboard: Array<{
     id: string;
     name: string;
@@ -148,11 +160,18 @@ type Room = {
 
 // Clean up inactive players (not updated in 10 seconds)
 const PLAYER_TIMEOUT = 10000;
-const CAR_DESTROY_THRESHOLD = 100;
+// Increase destroy threshold so cars are a bit tougher (more health)
+export const CAR_DESTROY_THRESHOLD = 150;
 // reduce TTL so debris clears faster and feels less spammy
 const DEBRIS_TTL = 4000; // ms
 const MATCH_DURATION_MS = 3 * 60 * 1000; // 3 minutes
 const MIN_PHYSICS_STEP_MS = 16; // avoid running the full solver more than ~60fps per server tick
+// Server-side repair tuning
+const SERVER_REPAIR_DELAY_MS = 20000; // 20s (legacy per-destruction delay)
+const SERVER_REPAIR_AMOUNT = 10; // repair amount (reduce damage by 10)
+// Periodic server heal - runs for all players every X ms
+const SERVER_PERIODIC_REPAIR_MS = 30000; // 30s
+const SERVER_PERIODIC_REPAIR_AMOUNT = 10; // amount healed per tick
 const TREE_HEALTH = 45;
 const BUILDING_HEALTH = 360;
 const DELIVERY_SPAWN_POINTS = [
@@ -421,7 +440,8 @@ const SERVER_POWERUP_CONFIGS: Record<
     respawnTime: 30000,
     effect: { speedMultiplier: 1.5 },
   },
-  heal: { duration: 0, respawnTime: 25000, effect: { healAmount: 50 } },
+  // Heal powerup restores more health to match increased destroy threshold
+  heal: { duration: 0, respawnTime: 25000, effect: { healAmount: 75 } },
   shield: { duration: 10000, respawnTime: 35000 },
   magnet: { duration: 12000, respawnTime: 30000 },
   repel: { duration: 8000, respawnTime: 30000, effect: { repelRadius: 8 } },
@@ -560,6 +580,30 @@ const room: Room = {
   events: [],
 };
 
+// Start a periodic server-side repair interval that heals damaged players every
+// SERVER_PERIODIC_REPAIR_MS. This is global and ensures players regain health
+// over time (useful to recover from being wrecked).
+if (!room.periodicRepairHandle) {
+  room.periodicRepairHandle = setInterval(() => {
+    try {
+      const r = getRoom();
+      const now = Date.now();
+      for (const p of r.players.values()) {
+        // Only heal players who actually have damage
+        if ((p.damage || 0) > 0) {
+          // apply periodic repair
+          repairPlayer(p.id, SERVER_PERIODIC_REPAIR_AMOUNT);
+          recordSystemEvent(
+            `Periodic auto-repair ${p.id} by ${SERVER_PERIODIC_REPAIR_AMOUNT}`
+          );
+        }
+      }
+    } catch (e) {
+      console.error("Periodic repair interval error:", e);
+    }
+  }, SERVER_PERIODIC_REPAIR_MS) as unknown as ReturnType<typeof setInterval>;
+}
+
 function createInitialDestructibles(): Map<string, Destructible> {
   const defs: Destructible[] = [
     {
@@ -567,7 +611,7 @@ function createInitialDestructibles(): Map<string, Destructible> {
       type: "tree",
       x: -45,
       y: -45,
-      radius: 4,
+      radius: 2,
       height: 6,
       maxHealth: TREE_HEALTH,
       health: TREE_HEALTH,
@@ -579,7 +623,7 @@ function createInitialDestructibles(): Map<string, Destructible> {
       type: "tree",
       x: 45,
       y: -45,
-      radius: 4,
+      radius: 2,
       height: 6,
       maxHealth: TREE_HEALTH,
       health: TREE_HEALTH,
@@ -591,7 +635,7 @@ function createInitialDestructibles(): Map<string, Destructible> {
       type: "tree",
       x: -45,
       y: 45,
-      radius: 4,
+      radius: 2,
       height: 6,
       maxHealth: TREE_HEALTH,
       health: TREE_HEALTH,
@@ -603,7 +647,7 @@ function createInitialDestructibles(): Map<string, Destructible> {
       type: "tree",
       x: 45,
       y: 45,
-      radius: 4,
+      radius: 2,
       height: 6,
       maxHealth: TREE_HEALTH,
       health: TREE_HEALTH,
@@ -615,7 +659,7 @@ function createInitialDestructibles(): Map<string, Destructible> {
       type: "tree",
       x: 0,
       y: -50,
-      radius: 4,
+      radius: 2,
       height: 6,
       maxHealth: TREE_HEALTH,
       health: TREE_HEALTH,
@@ -627,7 +671,7 @@ function createInitialDestructibles(): Map<string, Destructible> {
       type: "tree",
       x: 0,
       y: 50,
-      radius: 4,
+      radius: 2,
       height: 6,
       maxHealth: TREE_HEALTH,
       health: TREE_HEALTH,
@@ -639,7 +683,7 @@ function createInitialDestructibles(): Map<string, Destructible> {
       type: "tree",
       x: -50,
       y: 0,
-      radius: 4,
+      radius: 2,
       height: 6,
       maxHealth: TREE_HEALTH,
       health: TREE_HEALTH,
@@ -651,7 +695,7 @@ function createInitialDestructibles(): Map<string, Destructible> {
       type: "tree",
       x: 50,
       y: 0,
-      radius: 4,
+      radius: 2,
       height: 6,
       maxHealth: TREE_HEALTH,
       health: TREE_HEALTH,
@@ -872,7 +916,90 @@ function createInitialDestructibles(): Map<string, Destructible> {
       destroyed: false,
       debris: [],
     },
+      // Central Santa - destructible landmark (kept in defs list; positions for reindeer will be added below)
+      {
+        id: "santa-center",
+        type: "santa",
+        x: 0,
+        y: 0,
+        radius: 6,
+        height: 6,
+        maxHealth: 500,
+        health: 500,
+        destroyed: false,
+        debris: [],
+      },
   ];
+
+  // Scatter reindeer across the playable area while avoiding center and other objects
+  const REINDEER_COUNT = 8;
+  const MAP_EDGE = 88; // keep inside walls (~100)
+  const MIN_DIST_FROM_CENTER = 8;
+  const MIN_DIST_BETWEEN = 4;
+  const MAX_ATTEMPTS = 800;
+
+  function randRange(min: number, max: number) {
+    return Math.random() * (max - min) + min;
+  }
+
+  const existingPositions: Array<{ x: number; y: number; radius: number }> = defs.map((d) => ({ x: d.x, y: d.y, radius: d.radius || 1 }));
+  const reindeerDefs: Destructible[] = [];
+  let attempts = 0;
+  while (reindeerDefs.length < REINDEER_COUNT && attempts < MAX_ATTEMPTS) {
+    attempts++;
+    const x = Math.round(randRange(-MAP_EDGE + 6, MAP_EDGE - 6));
+    const y = Math.round(randRange(-MAP_EDGE + 6, MAP_EDGE - 6));
+
+    // avoid center area where Santa sits
+    if (Math.hypot(x, y) < MIN_DIST_FROM_CENTER) continue;
+
+    // avoid static map obstacles
+    let blocked = false;
+    for (const o of STATIC_MAP_OBSTACLES) {
+      if (Math.hypot(x - o.x, y - o.y) < o.radius + 3) {
+        blocked = true;
+        break;
+      }
+    }
+    if (blocked) continue;
+
+    // avoid overlapping other destructibles and previously placed reindeer
+    let tooClose = false;
+    for (const p of existingPositions) {
+      if (Math.hypot(x - p.x, y - p.y) < (p.radius || 1) + MIN_DIST_BETWEEN) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+
+    for (const p of reindeerDefs) {
+      if (Math.hypot(x - p.x, y - p.y) < (p.radius || 1) + MIN_DIST_BETWEEN) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+
+    const id = `reindeer-${reindeerDefs.length}`;
+    const d: Destructible = {
+      id,
+      type: "reindeer",
+      x,
+      y,
+      radius: 1.2,
+      height: 1.0,
+      maxHealth: 40,
+      health: 40,
+      destroyed: false,
+      debris: [],
+    };
+    reindeerDefs.push(d);
+    existingPositions.push({ x: d.x, y: d.y, radius: d.radius });
+  }
+
+  // Merge reindeer defs into main defs list
+  for (const r of reindeerDefs) defs.push(r);
 
   return new Map(defs.map((d) => [d.id, d]));
 }
@@ -947,6 +1074,32 @@ export function startRace() {
       room.raceEndTime!
     ).toISOString()} durationMs=${room.matchDurationMs}`
   );
+  // Clear any previously scheduled finalize (safety)
+  try {
+    if (room.scheduledFinalize) {
+      clearTimeout(room.scheduledFinalize as any);
+      room.scheduledFinalize = null;
+    }
+  } catch (e) {}
+
+  // Schedule a server-side finalize to ensure the match ends even if
+  // clients stop polling the server near the end of the match.
+  try {
+    const delay = Math.max(0, (room.raceEndTime || Date.now()) - Date.now());
+    room.scheduledFinalize = setTimeout(() => {
+      try {
+        if (room.gameState === "racing") {
+          // Double-check timing to avoid races being finalized prematurely
+          const now = Date.now();
+          if (!room.raceEndTime || now >= room.raceEndTime) {
+            finalizeRace();
+          }
+        }
+      } catch (err) {
+        console.error("Error in scheduled finalizeRace:", err);
+      }
+    }, delay + 50); // small buffer
+  } catch (e) {}
 }
 
 function finalizeRace() {
@@ -986,6 +1139,13 @@ function finalizeRace() {
   } catch (err) {
     console.error("Error clearing destructible debris at finalizeRace:", err);
   }
+  // Clear any scheduled finalize timer
+  try {
+    if (room.scheduledFinalize) {
+      clearTimeout(room.scheduledFinalize as any);
+      room.scheduledFinalize = null;
+    }
+  } catch (e) {}
 }
 
 export function getTimerState() {
@@ -1130,6 +1290,31 @@ export function updatePlayerReady(
   }
 }
 
+export function setPlayerColor(playerId: string, color: string) {
+  const currentRoom = getRoom();
+  if (!currentRoom.players.has(playerId)) return null;
+  const player = currentRoom.players.get(playerId)!;
+  player.color = color;
+  player.lastUpdate = Date.now();
+  return player;
+}
+
+// Repair a player's car by reducing damage by `amount` (0-100).
+// If damage falls below the destruction threshold the destroyed flag is cleared.
+export function repairPlayer(playerId: string, amount: number) {
+  const currentRoom = getRoom();
+  if (!currentRoom.players.has(playerId)) return null;
+  const player = currentRoom.players.get(playerId)!;
+  const prev = player.damage || 0;
+  player.damage = Math.max(0, prev - Math.abs(amount));
+  if ((player.damage || 0) < CAR_DESTROY_THRESHOLD) {
+    player.destroyed = false;
+  }
+  player.lastUpdate = Date.now();
+  recordSystemEvent(`Repaired ${player.id} by ${amount} (damage ${prev} -> ${player.damage})`);
+  return player;
+}
+
 export function checkAllReady(): boolean {
   const currentRoom = getRoom();
   const players = Array.from(currentRoom.players.values());
@@ -1186,7 +1371,10 @@ export function updatePhysics(): PlayerCar[] {
 
   for (const player of currentRoom.players.values()) {
     const currentDamage = player.damage || 0;
+    const wasDestroyed = !!player.destroyed;
     player.destroyed = currentDamage >= CAR_DESTROY_THRESHOLD;
+    // Periodic server-side repairs handle healing for all players every
+    // SERVER_PERIODIC_REPAIR_MS; no per-player timeout scheduling here.
     const performanceScale = getPerformanceScale(currentDamage);
     // Expire player's active powerups and compute speed multiplier
     player.activePowerUps = (player.activePowerUps || []).filter(
@@ -1203,9 +1391,16 @@ export function updatePhysics(): PlayerCar[] {
     const turnSpeed = baseTurnSpeed * (0.5 + 0.5 * performanceScale);
 
     if (player.destroyed) {
-      player.speed = Math.max(player.speed - deceleration * dt * 2, 0);
+      // Immediately immobilize destroyed players to avoid them sliding or
+      // responding to inputs after being marked destroyed. Keep them on the
+      // ground and clear movement-related inputs/state.
+      player.speed = 0;
       player.throttle = 0;
       player.steer = 0;
+      player.verticalSpeed = 0;
+      player.z = groundHeight;
+      // Skip movement/turning for destroyed players
+      continue;
     } else {
       // Apply acceleration/deceleration based on throttle
       if (player.throttle > 0) {
@@ -1229,7 +1424,9 @@ export function updatePhysics(): PlayerCar[] {
     // Only turn if moving (turning is proportional to speed)
     if (Math.abs(player.speed) > 0.5) {
       const turnFactor = Math.min(Math.abs(player.speed) / maxSpeed, 1);
-      player.angle +=
+      // Client steer: positive = right, negative = left. Subtract steer
+      // here so a positive steer rotates the car to the right in world space.
+      player.angle -=
         player.steer * turnSpeed * dt * turnFactor * Math.sign(player.speed);
     }
 
@@ -1619,6 +1816,10 @@ function addCarDamage(player: PlayerCar, amount: number) {
     player.destroyed = true;
     player.speed = 0;
     player.verticalSpeed = 0;
+    try {
+      // Per-player timeouts removed. Periodic server repairs will heal players
+      // automatically every SERVER_PERIODIC_REPAIR_MS.
+    } catch (e) {}
   }
 }
 

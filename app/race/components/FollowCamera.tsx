@@ -38,7 +38,12 @@ export default function FollowCamera({
     const targetZ = playerCar.y - Math.cos(carAngle) * distance;
     const targetY = (playerCar.z || 0.8) + height;
 
-    targetPositionRef.current.set(targetX, targetY, targetZ);
+    // Clamp camera within map bounds so it doesn't pass through perimeter walls.
+    // Map extents are roughly +/-100; keep a margin so the camera doesn't clip.
+    const BOUNDS = { minX: -90, maxX: 90, minZ: -90, maxZ: 90 };
+    const clampedX = Math.min(Math.max(targetX, BOUNDS.minX), BOUNDS.maxX);
+    const clampedZ = Math.min(Math.max(targetZ, BOUNDS.minZ), BOUNDS.maxZ);
+    targetPositionRef.current.set(clampedX, targetY, clampedZ);
 
     // Use exponential smoothing based on frame delta to make movement
     // framerate-independent and reduce perceived jitter on mobile.

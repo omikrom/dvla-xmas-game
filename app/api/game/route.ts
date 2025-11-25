@@ -10,6 +10,7 @@ import {
   getMatchEvents,
   getPowerUps,
   getServerFps,
+  CAR_DESTROY_THRESHOLD,
 } from "@/lib/gameState";
 
 const nowMs = () => Number(process.hrtime.bigint() / BigInt(1e6));
@@ -58,7 +59,15 @@ export async function POST(request: NextRequest) {
       if (isInvisible && p.id !== body.playerId) {
         return { ...p, hidden: true };
       }
-      return p;
+      // Include a damage percent so clients can display health relative to
+      // the server's destruction threshold (keeps UI consistent if threshold
+      // differs from 100).
+      const damage = p.damage || 0;
+      const damagePercent = Math.min(
+        100,
+        Math.round((damage / (CAR_DESTROY_THRESHOLD || 100)) * 100)
+      );
+      return { ...p, damagePercent };
     });
 
     const gameStateRes = await measure("getGameState", () => getGameState());

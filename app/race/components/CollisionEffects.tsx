@@ -7,7 +7,7 @@ export default function CollisionEffects({
   setEffects,
 }: {
   effects: any[];
-  setEffects: (e: any[]) => void;
+  setEffects: React.Dispatch<React.SetStateAction<any[]>>;
 }) {
   useEffect(() => {
     const iv = setInterval(() => {

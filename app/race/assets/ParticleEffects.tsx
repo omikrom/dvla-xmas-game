@@ -4,6 +4,27 @@ import { useRef, useMemo, useEffect } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
+// Lightweight runtime diagnostics for particle systems. Registers number
+// of mounted particle systems and aggregates total particle count.
+function useParticleDiagnostics(count: number) {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    (window as any).__GAME_DIAGS = (window as any).__GAME_DIAGS || {
+      particleSystems: 0,
+      totalParticles: 0,
+    };
+    const d = (window as any).__GAME_DIAGS;
+    d.particleSystems = (d.particleSystems || 0) + 1;
+    d.totalParticles = (d.totalParticles || 0) + count;
+    return () => {
+      const dd = (window as any).__GAME_DIAGS;
+      if (!dd) return;
+      dd.particleSystems = Math.max(0, (dd.particleSystems || 0) - 1);
+      dd.totalParticles = Math.max(0, (dd.totalParticles || 0) - count);
+    };
+  }, [count]);
+}
+
 /**
  * Fire Effect - Animated rising particles with glow
  * Usage: <Fire position={[0, 0, 0]} scale={1} />
@@ -42,6 +63,8 @@ export function Fire({
 
     return { positions, velocities, lifetimes, sizes };
   }, [count, scale]);
+
+  useParticleDiagnostics(count);
 
   useFrame((state, delta) => {
     if (!pointsRef.current) return;
@@ -161,6 +184,8 @@ export function Smoke({
 
     return { positions, velocities, lifetimes, sizes };
   }, [count, scale]);
+
+  useParticleDiagnostics(count);
 
   useFrame((state, delta) => {
     if (!pointsRef.current) return;
@@ -288,6 +313,8 @@ export function Sparks({
     return { positions, velocities, lifetimes, opacities };
   }, [count, scale]);
 
+  useParticleDiagnostics(count);
+
   useFrame((state, delta) => {
     if (!pointsRef.current) return;
 
@@ -400,6 +427,8 @@ export function Rain({
     return { positions, velocities };
   }, [count, scale, area]);
 
+  useParticleDiagnostics(count);
+
   useFrame((state, delta) => {
     if (!pointsRef.current) return;
 
@@ -477,6 +506,8 @@ export function Snow({
 
     return { positions, velocities, driftPhases };
   }, [count, scale, area]);
+
+  useParticleDiagnostics(count);
 
   useFrame((state, delta) => {
     if (!pointsRef.current) return;
@@ -571,6 +602,8 @@ export function Stars({
 
     return { positions, phases, speeds, radiuses, initialAngles };
   }, [count, scale]);
+
+  useParticleDiagnostics(count);
 
   useFrame((state, delta) => {
     if (!pointsRef.current || !groupRef.current) return;
@@ -669,6 +702,8 @@ export function MagicSparkle({
 
     return { positions, velocities, lifetimes, phases };
   }, [count, scale]);
+
+  useParticleDiagnostics(count);
 
   useFrame((state, delta) => {
     if (!pointsRef.current) return;
@@ -776,6 +811,8 @@ export function Confetti({
 
     return { positions, velocities, rotations, colors };
   }, [count, scale]);
+
+  useParticleDiagnostics(count);
 
   useFrame((state, delta) => {
     if (!pointsRef.current) return;
@@ -1011,6 +1048,8 @@ export function ChristmasLightsTwinkle({
     return { positions, colors, phases };
   }, [count, scale]);
 
+  useParticleDiagnostics(count);
+
   useFrame((state) => {
     if (!pointsRef.current) return;
 
@@ -1043,6 +1082,130 @@ export function ChristmasLightsTwinkle({
       </bufferGeometry>
       <pointsMaterial
         size={0.2 * scale}
+        vertexColors
+        transparent
+        sizeAttenuation
+      />
+    </points>
+  );
+}
+
+/**
+ * Tree String Lights - arrange twinkles along horizontal rings to simulate
+ * wrapped string lights on a tree. This produces a more natural 'string'
+ * look than a diffuse cloud.
+ * Usage: <TreeStringLights position={[0,2.2,0]} scale={0.6} tiers={[1.5,2.8,4]} counts={[8,8,6]} />
+ */
+export function TreeStringLights({
+  position = [0, 2.2, 0] as [number, number, number],
+  scale = 1.1,
+  tiers = [1.5, 2.8, 8],
+  counts = [8, 8, 6],
+}: {
+  position?: [number, number, number];
+  scale?: number;
+  tiers?: number[];
+  counts?: number[];
+}) {
+  // compute total count
+  const total = counts.reduce((a, b) => a + b, 0);
+  const pointsRef = useRef<THREE.Points>(null);
+
+  const particles = useMemo(() => {
+    const positions = new Float32Array(total * 3);
+    const colors = new Float32Array(total * 3);
+    const phases = new Float32Array(total);
+    const lightColors = [
+      [1, 0.1, 0.1],
+      [0.1, 1, 0.1],
+      [0.1, 0.6, 1],
+      [1, 0.9, 0.2],
+      [1, 0.2, 0.9],
+    ];
+
+    let idx = 0;
+    const topTier = Math.max(...tiers);
+    for (let t = 0; t < tiers.length; t++) {
+      const y = tiers[t] * scale - tiers[0] * scale * 0.2; // small offset
+      // Make radius decrease towards the top so the tree is wider at the base
+      const radius = ((topTier - tiers[t]) * 0.5 + 0.3) * scale;
+      const n = counts[t] || 6;
+      for (let i = 0; i < n; i++) {
+        const angle = (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.06;
+        const r = radius * (0.9 + Math.random() * 0.2);
+        const x = Math.cos(angle) * r;
+        // Flip Z so the ring wraps the tree in the expected direction
+        const z = -Math.sin(angle) * r;
+        const i3 = idx * 3;
+        positions[i3] = x;
+        positions[i3 + 1] = y + (Math.random() - 0.5) * 0.06;
+        positions[i3 + 2] = z;
+        const color =
+          lightColors[Math.floor(Math.random() * lightColors.length)];
+        colors[i3] = color[0];
+        colors[i3 + 1] = color[1];
+        colors[i3 + 2] = color[2];
+        phases[idx] = Math.random() * Math.PI * 2;
+        idx++;
+      }
+    }
+
+    // copy base colors so we can modulate brightness per-frame
+    const baseColors = new Float32Array(colors);
+    return { positions, colors, phases, baseColors };
+  }, [tiers.join("|"), counts.join("|"), scale, total]);
+
+  useParticleDiagnostics(total);
+
+  useFrame((state) => {
+    if (!pointsRef.current) return;
+    const time = state.clock.elapsedTime;
+    const mat = pointsRef.current.material as THREE.PointsMaterial;
+    // base size
+    mat.size = 0.18 * scale;
+    mat.opacity = 1.0;
+    // per-point color brightness modulation using stored phases
+    const cols = particles.colors;
+    const base = (particles as any).baseColors as Float32Array | undefined;
+    if (base) {
+      for (let i = 0; i < total; i++) {
+        const ph = particles.phases[i];
+        const i3 = i * 3;
+        // stronger sparkle: brightness range ~0.3 .. 1.8, faster frequency
+        const b = 0.3 + 1.5 * ((Math.sin(time * 6 + ph) + 1) / 2);
+        // mix towards white at peak to give a bright sparkle
+        cols[i3] = Math.min(1, base[i3] * b + (1 - base[i3]) * (b - 1));
+        cols[i3 + 1] = Math.min(1, base[i3 + 1] * b + (1 - base[i3 + 1]) * (b - 1));
+        cols[i3 + 2] = Math.min(1, base[i3 + 2] * b + (1 - base[i3 + 2]) * (b - 1));
+      }
+      // mark attribute for update
+      const geom = pointsRef.current.geometry as THREE.BufferGeometry;
+      if (geom && geom.attributes && geom.attributes.color) {
+        (geom.attributes.color as THREE.BufferAttribute).needsUpdate = true;
+      }
+    }
+  });
+
+  return (
+    <points ref={pointsRef} position={position}>
+      <bufferGeometry>
+        <bufferAttribute
+          attach="attributes-position"
+          count={total}
+          array={particles.positions}
+          itemSize={3}
+          args={[particles.positions, 3]}
+        />
+        <bufferAttribute
+          attach="attributes-color"
+          count={total}
+          array={particles.colors}
+          itemSize={3}
+          args={[particles.colors, 3]}
+        />
+      </bufferGeometry>
+      <pointsMaterial
+        size={0.18 * scale}
         vertexColors
         transparent
         sizeAttenuation
@@ -1094,6 +1257,8 @@ export function HollyLeaves({
 
     return { positions, velocities, colors, sizes };
   }, [count, scale]);
+
+  useParticleDiagnostics(count);
 
   useFrame((_, delta) => {
     if (!pointsRef.current) return;
@@ -1167,6 +1332,8 @@ export function CandyCanes({
       phase: Math.random() * Math.PI * 2,
     }));
   }, [count, scale]);
+
+  useParticleDiagnostics(count);
 
   useFrame((state) => {
     if (!groupRef.current) return;
@@ -1253,6 +1420,8 @@ export function OrnamentSparkle({
 
     return { positions, colors, sizes };
   }, [count, scale]);
+
+  useParticleDiagnostics(count);
 
   useFrame((state) => {
     if (!pointsRef.current) return;

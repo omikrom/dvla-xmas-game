@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, useRef } from "react";
 import SnowOverlay from "../components/SnowOverlay";
 
 type LobbyPlayer = {
@@ -16,16 +16,37 @@ type LobbyState = {
   gameState: "lobby" | "racing" | "finished";
 };
 
+type ColorPickerProps = {
+  value: string;
+  onChange: (c: string) => void;
+};
+
+// Color picker inline is rendered inside the player list for the current user
+
+// (player header avatar removed; color input is inline in the player list)
+
 export default function LobbyPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const name = searchParams.get("name") || "Player";
+  const name =
+    (typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("name")
+      : null) || "Player";
   const [playerId, setPlayerId] = useState<string>("");
+  const [playerColor, setPlayerColor] = useState<string>(() => {
+    try {
+      if (typeof window !== "undefined") {
+        return window.sessionStorage.getItem("playerColor") || "#16a34a";
+      }
+    } catch (e) {}
+    return "#16a34a";
+  });
   const [lobbyState, setLobbyState] = useState<LobbyState>({
     players: [],
     gameState: "lobby",
   });
   const [isReady, setIsReady] = useState(false);
+  const colorInputRef = useRef<HTMLInputElement | null>(null);
+  const playerColorRef = useRef<string>(playerColor);
 
   useEffect(() => {
     if (typeof window === "undefined" || playerId) return;
@@ -34,12 +55,32 @@ export default function LobbyPage() {
       id = `player-${Math.random().toString(36).substring(2, 11)}`;
       window.sessionStorage.setItem("playerId", id);
     }
+    // Ensure we have a stored color for this player
+    try {
+      let col = window.sessionStorage.getItem("playerColor");
+      if (!col) {
+        // pick a default color (green) or random nicer palette
+        const palette = [
+          "#ef4444",
+          "#f97316",
+          "#f59e0b",
+          "#84cc16",
+          "#06b6d4",
+          "#6366f1",
+          "#ec4899",
+          "#10b981",
+        ];
+        col = palette[Math.floor(Math.random() * palette.length)];
+        window.sessionStorage.setItem("playerColor", col);
+      }
+      setPlayerColor(col);
+    } catch (e) {}
     setPlayerId(id);
   }, [playerId]);
 
   useEffect(() => {
     if (!playerId) return;
-    // Poll lobby state
+    // Poll lobby state (use ref for playerColor so interval remains stable)
     const interval = setInterval(async () => {
       try {
         const response = await fetch("/api/lobby", {
@@ -49,6 +90,7 @@ export default function LobbyPage() {
             playerId,
             name,
             ready: isReady,
+            color: playerColorRef.current,
           }),
         });
 
@@ -67,7 +109,30 @@ export default function LobbyPage() {
     }, 500); // Poll every 500ms
 
     return () => clearInterval(interval);
+    // Keep interval stable; playerColor is read from ref instead of dependencies
   }, [playerId, name, isReady, router]);
+
+  // Allow sending color updates when playerColor changes
+  useEffect(() => {
+    if (!playerId) return;
+    // keep ref current for polling callback
+    playerColorRef.current = playerColor;
+    // trigger an immediate update with new color
+    (async () => {
+      try {
+        await fetch("/api/lobby", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            playerId,
+            name,
+            ready: isReady,
+            color: playerColor,
+          }),
+        });
+      } catch (e) {}
+    })();
+  }, [playerColor, playerId, name, isReady]);
 
   const toggleReady = () => {
     setIsReady(!isReady);
@@ -81,24 +146,19 @@ export default function LobbyPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-[#064e3b] to-slate-900 text-white flex flex-col items-center justify-center p-8">
       <div className="max-w-2xl w-full space-y-8">
         <SnowOverlay count={36} />
-        <div className="text-center">
+        <div className="text-center relative">
           <div className="flex items-center justify-center gap-4 mb-2">
-            <img
-              src="/logo.png"
-              alt="The DVLA's Grand Theft Giftwrap"
-              onError={(e) =>
-                ((e.currentTarget as HTMLImageElement).style.display = "none")
-              }
-              className="w-14 h-14 object-contain"
-            />
             <h1 className="text-4xl font-extrabold">
-              The DVLA's{" "}
-              <span className="text-[#f59e0b]">Grand Theft Giftwrap</span>
+              <span className="text-[#c60f0f]">Grand </span>
+              <span className="text-[#fff]"> Theft</span>{" "}
+              <span className="text-[#c60f0f]"> Giftwrap</span>
             </h1>
           </div>
           <p className="text-slate-300 text-lg italic">
             “One night. Zero brakes. All Christmas.”
           </p>
+
+          {/* header is unchanged; color avatar moved into player list */}
         </div>
 
         <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10">
@@ -121,10 +181,42 @@ export default function LobbyPage() {
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div
-                      className="w-8 h-8 rounded-full"
-                      style={{ backgroundColor: player.color }}
-                    />
+                    {player.id === playerId ? (
+                      <>
+                        <button
+                          onClick={() => colorInputRef.current?.click()}
+                          aria-label="Choose your colour"
+                          className="w-8 h-8 rounded-full ring-2 ring-white/20 focus:outline-none hover:scale-105 transition-transform"
+                          style={{ backgroundColor: player.color }}
+                        />
+                        <input
+                          ref={colorInputRef}
+                          type="color"
+                          value={playerColor}
+                          onChange={(e) => {
+                            const c = e.target.value;
+                            try {
+                              window.sessionStorage.setItem("playerColor", c);
+                            } catch (err) {}
+                            // optimistic local update so the avatar changes immediately
+                            setPlayerColor(c);
+                            setLobbyState((prev) => ({
+                              ...prev,
+                              players: prev.players.map((pp) =>
+                                pp.id === playerId ? { ...pp, color: c } : pp
+                              ),
+                            }));
+                          }}
+                          className="sr-only"
+                          aria-hidden="true"
+                        />
+                      </>
+                    ) : (
+                      <div
+                        className="w-8 h-8 rounded-full"
+                        style={{ backgroundColor: player.color }}
+                      />
+                    )}
                     <span className="font-medium">
                       {player.name}
                       {player.id === playerId && " (You)"}

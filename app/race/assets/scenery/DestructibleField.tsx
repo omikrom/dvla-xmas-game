@@ -5,6 +5,8 @@ import MyBuilding from "../MyBuilding";
 import { ChristmasTree } from "./props/ChristmasTree";
 import { Snowman } from "./props/Snowman";
 import { CandyCane } from "./props/CandyCane";
+import { Santa } from "./props/Santa";
+import { Reindeer } from "./props/Reindeer";
 import { useEffect, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
@@ -211,43 +213,78 @@ export function DestructibleField({
 
         return (
           <group key={item.id}>
-            {item.type === "tree" ? (
-              <ChristmasTree
-                id={item.id}
-                position={position}
-                destroyed={item.destroyed}
-                health={item.health}
-                maxHealth={item.maxHealth}
-                lastHitAt={item.lastHitAt}
-              />
-            ) : item.type === "snowman" ? (
-              <Snowman
-                id={item.id}
-                position={position}
-                destroyed={item.destroyed}
-                health={item.health}
-                maxHealth={item.maxHealth}
-                lastHitAt={item.lastHitAt}
-              />
-            ) : item.type === "candy" || item.type === "candycane" ? (
-              <CandyCane
-                id={item.id}
-                position={position}
-                destroyed={item.destroyed}
-                health={item.health}
-                maxHealth={item.maxHealth}
-                lastHitAt={item.lastHitAt}
-              />
-            ) : (
-              <MyBuilding
-                position={position}
-                rotation={[0, angle, 0]}
-                destroyed={item.destroyed}
-                health={item.health}
-                maxHealth={item.maxHealth}
-                lastHitAt={item.lastHitAt}
-              />
-            )}
+            {(() => {
+              switch (item.type) {
+                case "tree":
+                  return (
+                    <ChristmasTree
+                      id={item.id}
+                      position={position}
+                      destroyed={item.destroyed}
+                      health={item.health}
+                      maxHealth={item.maxHealth}
+                      lastHitAt={item.lastHitAt}
+                    />
+                  );
+                case "snowman":
+                  return (
+                    <Snowman
+                      id={item.id}
+                      position={position}
+                      destroyed={item.destroyed}
+                      health={item.health}
+                      maxHealth={item.maxHealth}
+                      lastHitAt={item.lastHitAt}
+                    />
+                  );
+                case "candy":
+                  return (
+                    <CandyCane
+                      id={item.id}
+                      position={position}
+                      destroyed={item.destroyed}
+                      health={item.health}
+                      maxHealth={item.maxHealth}
+                      lastHitAt={item.lastHitAt}
+                    />
+                  );
+                case "santa":
+                  return (
+                    <Santa
+                      id={item.id}
+                      position={position}
+                      physics={true}
+                      destroyed={item.destroyed}
+                      health={item.health}
+                      maxHealth={item.maxHealth}
+                      lastHitAt={item.lastHitAt}
+                    />
+                  );
+                case "reindeer":
+                  return (
+                    <Reindeer
+                      id={item.id}
+                      position={position}
+                      physics={true}
+                      destroyed={item.destroyed}
+                      health={item.health}
+                      maxHealth={item.maxHealth}
+                      lastHitAt={item.lastHitAt}
+                    />
+                  );
+                default:
+                  return (
+                    <MyBuilding
+                      position={position}
+                      rotation={[0, angle, 0]}
+                      destroyed={item.destroyed}
+                      health={item.health}
+                      maxHealth={item.maxHealth}
+                      lastHitAt={item.lastHitAt}
+                    />
+                  );
+              }
+            })()}
             <DebrisField chunks={item.debris} />
           </group>
         );
