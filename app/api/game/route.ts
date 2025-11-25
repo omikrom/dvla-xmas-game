@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   updatePhysics,
   createOrUpdatePlayer,
+  getInstanceId,
+  adoptMatchFromToken,
+  getMatchToken,
   getGameState,
   getDestructibleState,
   getTimerState,
@@ -38,9 +41,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // If client provided a signed match token, adopt it so this worker's
+    // in-memory room uses the same race start/end times.
+    try {
+      if (body.matchToken) {
+        const ok = adoptMatchFromToken(body.matchToken);
+        if (ok) {
+          // include a quick log for diagnostics
+          console.debug(`[api/game] adopted match token from client`);
+        }
+      }
+    } catch (e) {}
+
     // Update player input
     const createRes = await measure("createOrUpdatePlayer", () =>
-      createOrUpdatePlayer(playerId, name, steer || 0, throttle || 0)
+      createOrUpdatePlayer(playerId, name, steer || 0, throttle || 0, {
+        lastX: body.lastX,
+        lastY: body.lastY,
+        lastAngle: body.lastAngle,
+      })
     );
 
     // Update physics
@@ -93,6 +112,8 @@ export async function POST(request: NextRequest) {
       events: eventsRes.result,
       powerUps: powerUpsRes.result,
       serverFps: serverFpsRes.result,
+      instanceId: getInstanceId(),
+      matchToken: getMatchToken(),
     });
   } catch (error) {
     console.error("Error in game state update:", error);

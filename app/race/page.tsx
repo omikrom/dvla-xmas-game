@@ -76,6 +76,14 @@ type JoystickState = {
   y: number;
 };
 
+// Debug helper: enable console logs only in dev or when `window.__GAME_DEBUG__` is set.
+const __IS_GAME_DEBUG__ =
+  (typeof window !== "undefined" && !!(window as any).__GAME_DEBUG__) ||
+  process.env.NODE_ENV !== "production";
+function dbg(...args: any[]) {
+  if (__IS_GAME_DEBUG__) console.log(...args);
+}
+
 export default function RacePage() {
   return <RaceClient />;
 }
@@ -157,7 +165,7 @@ function RaceClient() {
           const gameNodes = document.querySelectorAll(".game-canvas *").length;
           // Log compact summary
           // eslint-disable-next-line no-console
-          console.log(
+          dbg(
             "[RACE_DIAGS] mounts=",
             (window as any).__RACE_MOUNTS,
             "canvases=",
@@ -180,6 +188,20 @@ function RaceClient() {
         ((window as any).__RACE_MOUNTS || 1) - 1
       );
       if (loggerId) window.clearInterval(loggerId);
+    };
+  }, []);
+
+  // Prevent the page root from scrolling while the game is mounted (mobile fix).
+  // We add/remove the `no-scroll` class defined in `globals.css` so this is
+  // reversible when the user navigates away.
+  useEffect(() => {
+    try {
+      document.body.classList.add("no-scroll");
+    } catch (e) {}
+    return () => {
+      try {
+        document.body.classList.remove("no-scroll");
+      } catch (e) {}
     };
   }, []);
   
@@ -378,7 +400,7 @@ function RaceClient() {
       setDebugLogs((prev) => [entry, ...prev].slice(0, 50));
       if (level === "error") console.error(`[DEBUG] ${msg}`);
       else if (level === "warn") console.warn(`[DEBUG] ${msg}`);
-      else console.log(`[DEBUG] ${msg}`);
+      else dbg(`[DEBUG] ${msg}`);
     },
     []
   );
@@ -647,7 +669,7 @@ function RaceClient() {
   useEffect(() => {
     if (!playerId || !name) return;
 
-    console.log("Starting game loop for player:", playerId, name);
+    dbg("Starting game loop for player:", playerId, name);
 
     const updateInterval = setInterval(async () => {
       try {
@@ -673,16 +695,30 @@ function RaceClient() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            playerId,
-            name,
-            steer,
-            throttle,
+              playerId,
+              name,
+              steer,
+              throttle,
+              // Send last known interpolated position and angle so any
+              // serverless worker that hasn't seen this player can initialize
+              // them at the client's current location instead of a random spawn.
+              lastX: interpolatedPositionsRef.current.get(playerId)?.x,
+              lastY: interpolatedPositionsRef.current.get(playerId)?.y,
+              lastAngle: cars.find((c) => c.id === playerId)?.angle,
           }),
         });
 
         if (response.ok) {
           const data = await response.json();
-          setCars(data.players || []);
+          // Defensive: deduplicate players by id in case server returns
+          // duplicate entries (observed as flickering/dual-render issues).
+          const rawPlayers = data.players || [];
+          const playersById = new Map<string, any>();
+          for (const p of rawPlayers) {
+            playersById.set(p.id, p);
+          }
+          const dedupedPlayers = Array.from(playersById.values());
+          setCars(dedupedPlayers);
           setServerFps(data.serverFps || 0);
           // Compare destructibles for changes (destroyed state & debris counts)
           try {
@@ -812,7 +848,7 @@ function RaceClient() {
     }, 50);
 
     return () => {
-      console.log("Stopping game loop");
+      dbg("Stopping game loop");
       clearInterval(updateInterval);
     };
   }, [playerId, name]);
@@ -1176,7 +1212,7 @@ function RaceClient() {
       try {
         const gl = glRef.current as any;
         if (gl) {
-          console.log("Disposing WebGL renderer on unmount");
+          dbg("Disposing WebGL renderer on unmount");
           try {
             const canvas = gl.domElement as HTMLCanvasElement | undefined;
             if (canvas) {
@@ -1278,29 +1314,28 @@ function RaceClient() {
         } catch (e) {}
         return false;
       })();
-      if (clientDebug) {
+        if (clientDebug) {
         try {
           const canvasEl = glRef.current?.domElement as
             | HTMLCanvasElement
             | undefined;
-          console.groupCollapsed(
-            `Race resize debug (scheduled): computed ${w}x${h} (isMobile=${isMobile} isPortrait=${isPortrait})`
-          );
-          console.log("rotRect:", rotatorRef.current?.getBoundingClientRect());
-          console.log("observedRect:", getObservedEl().getBoundingClientRect());
-          console.log(
-            "visualViewport:",
-            (window as any).visualViewport || null
-          );
-          if (canvasEl)
-            console.log(
-              "canvas.domRect:",
-              canvasEl.getBoundingClientRect(),
-              "pixels:",
-              canvasEl.width,
-              canvasEl.height
+          if (__IS_GAME_DEBUG__) {
+            console.groupCollapsed(
+              `Race resize debug (scheduled): computed ${w}x${h} (isMobile=${isMobile} isPortrait=${isPortrait})`
             );
-          console.groupEnd();
+            dbg("rotRect:", rotatorRef.current?.getBoundingClientRect());
+            dbg("observedRect:", getObservedEl().getBoundingClientRect());
+            dbg("visualViewport:", (window as any).visualViewport || null);
+            if (canvasEl)
+              dbg(
+                "canvas.domRect:",
+                canvasEl.getBoundingClientRect(),
+                "pixels:",
+                canvasEl.width,
+                canvasEl.height
+              );
+            console.groupEnd();
+          }
         } catch (e) {}
       }
 
@@ -1358,7 +1393,10 @@ function RaceClient() {
     >
       {isMobile && (
         <style>{`
-        .game-canvas > div { width: auto !important; height: auto !important; }
+        /* Force the canvas and three.js wrapper to fill the rotator/container
+           on mobile. A previous rule used 'auto' which prevented full-bleed sizing
+           causing the renderer to appear too small and permitting page scroll. */
+        .game-canvas, .game-canvas > div, .game-canvas canvas { width: 100% !important; height: 100% !important; display: block !important; }
       `}</style>
       )}
 
@@ -1577,7 +1615,7 @@ function RaceClient() {
               className="game-canvas"
               shadows
               camera={{ position: [0, 50, 50], fov: 70 }}
-              style={{ display: "block" }}
+              style={{ display: "block", width: "100%", height: "100%" }}
               onCreated={({ gl }) => {
                 glRef.current = gl;
                 const dpr = Math.max(1, window.devicePixelRatio || 1);

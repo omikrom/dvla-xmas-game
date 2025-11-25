@@ -220,11 +220,108 @@ const STATIC_MAP_OBSTACLES: Array<{ x: number; y: number; radius: number }> = [
   { x: -20, y: 10, radius: 9 },
 ];
 
+// Per-process instance id to help diagnose multi-worker routing issues.
+// This is generated once at module load and returned in API responses
+// to help determine whether different requests are hitting different
+// server instances (causes inconsistent in-memory room state).
+const INSTANCE_ID = `${Date.now().toString(36)}-${Math.random()
+  .toString(36)
+  .slice(2, 8)}`;
+
+export function getInstanceId() {
+  return INSTANCE_ID;
+}
+
+// Stateless signed match token helpers so serverless workers can agree on
+// a race start time without a shared datastore. Tokens are HMAC-signed
+// payloads containing `startedAt` and `durationMs`.
+import crypto from "crypto";
+
+const MATCH_SECRET = process.env.MATCH_SECRET || "dev-match-secret";
+
+function signPayload(payloadB64: string) {
+  return crypto.createHmac("sha256", MATCH_SECRET).update(payloadB64).digest("base64");
+}
+
+export function createMatchToken(startedAt: number, durationMs: number) {
+  const payload = JSON.stringify({ startedAt, durationMs });
+  const payloadB64 = Buffer.from(payload).toString("base64");
+  const sig = signPayload(payloadB64);
+  return `${payloadB64}.${sig}`;
+}
+
+export function verifyMatchToken(token: string | undefined) {
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [payloadB64, sig] = parts;
+  try {
+    const expected = signPayload(payloadB64);
+    const a = Buffer.from(expected);
+    const b = Buffer.from(sig);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64").toString("utf8"));
+    if (
+      typeof payload.startedAt === "number" &&
+      typeof payload.durationMs === "number"
+    ) {
+      return payload as { startedAt: number; durationMs: number };
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export function getMatchToken() {
+  // Return current room token if set, otherwise null
+  try {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    return (room as any).currentMatchToken || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export function adoptMatchFromToken(token?: string | null) {
+  const payload = verifyMatchToken(token || undefined);
+  if (!payload) return false;
+  try {
+    // Only adopt if we don't already have a later end time
+    if (!room.raceEndTime || room.raceEndTime < payload.startedAt + payload.durationMs) {
+      room.raceStartTime = payload.startedAt;
+      room.raceEndTime = payload.startedAt + payload.durationMs;
+      room.matchDurationMs = payload.durationMs;
+      // store the token for this instance
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      room.currentMatchToken = token;
+      recordSystemEvent(`Adopted match token: start=${new Date(payload.startedAt).toISOString()}`);
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function shuffleArray<T>(arr: T[]) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
+}
+
+// Deterministic color derived from player id to avoid worker-to-worker
+// color mismatches in multi-instance deployments.
+function colorFromId(id: string) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  const c = h & 0xffffff;
+  return "#" + c.toString(16).padStart(6, "0");
 }
 
 function isSafeSpawn(x: number, y: number, minDist = PLAYER_SPAWN_CLEARANCE) {
@@ -1050,6 +1147,11 @@ export function startRace() {
   room.matchDurationMs = MATCH_DURATION_MS;
   room.raceStartTime = Date.now();
   room.raceEndTime = room.raceStartTime + room.matchDurationMs;
+  // Create and store a signed match token so other serverless workers can
+  // adopt the same race timing without shared state.
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  room.currentMatchToken = createMatchToken(room.raceStartTime, room.matchDurationMs);
   room.destructibles = createInitialDestructibles();
   room.deliveries = createInitialDeliveries();
   room.powerUps = createInitialPowerUps();
@@ -1197,30 +1299,34 @@ export function createOrUpdatePlayer(
   playerId: string,
   name: string,
   steer: number,
-  throttle: number
+  throttle: number,
+  lastKnown?: { lastX?: number; lastY?: number; lastAngle?: number }
 ): PlayerCar {
   const currentRoom = getRoom();
 
   if (!currentRoom.players.has(playerId)) {
-    // Create new player - position them on the start line
-    const startAngle = Math.random() * Math.PI * 0.2 - Math.PI * 0.1; // Slight variation
+    // Create new player - if the client provided a last-known position
+    // use that to initialize the player so serverless cold workers that
+    // haven't yet seen this player synchronize to the client's location.
     const spawn = findSpawnPosition();
+    const useX = typeof lastKnown?.lastX === "number" ? lastKnown!.lastX! : spawn.x;
+    const useY = typeof lastKnown?.lastY === "number" ? lastKnown!.lastY! : spawn.y;
+    const startAngle =
+      typeof lastKnown?.lastAngle === "number"
+        ? lastKnown!.lastAngle!
+        : Math.random() * Math.PI * 0.2 - Math.PI * 0.1;
     const player: PlayerCar = {
       id: playerId,
       name,
-      x: spawn.x,
-      y: spawn.y,
+      x: useX,
+      y: useY,
       z: 0.3, // Car height off ground
       angle: startAngle,
       speed: 0,
       verticalSpeed: 0,
       steer,
       throttle,
-      color:
-        "#" +
-        Math.floor(Math.random() * 0xffffff)
-          .toString(16)
-          .padStart(6, "0"),
+      color: colorFromId(playerId),
       lastUpdate: Date.now(),
       ready: false,
       damage: 0,
@@ -1232,7 +1338,7 @@ export function createOrUpdatePlayer(
     };
     currentRoom.players.set(playerId, player);
     console.log(
-      `Created new player ${playerId} at position (${player.x}, ${player.y})`
+      `[${INSTANCE_ID}] Created new player ${playerId} at position (${player.x}, ${player.y})`
     );
     autoStartRaceIfNeeded();
     return player;
@@ -1267,11 +1373,7 @@ export function updatePlayerReady(
       verticalSpeed: 0,
       steer: 0,
       throttle: 0,
-      color:
-        "#" +
-        Math.floor(Math.random() * 0xffffff)
-          .toString(16)
-          .padStart(6, "0"),
+      color: colorFromId(playerId),
       lastUpdate: Date.now(),
       ready,
       damage: 0,

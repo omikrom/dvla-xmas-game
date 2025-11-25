@@ -30,6 +30,9 @@ function fadeVolume(
 }
 
 export default function AudioManager() {
+  const IS_DEBUG =
+    (typeof window !== "undefined" && !!(window as any).__GAME_DEBUG__) ||
+    process.env.NODE_ENV !== "production";
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const playlistRef = useRef<Playlist>([]);
   const indexRef = useRef<number>(0);
@@ -248,10 +251,8 @@ export default function AudioManager() {
     window.addEventListener("audio:setVolume", handleSetVolume as any);
 
     // debug helpers (kept as named functions so we can remove them cleanly)
-    const dbgLobby = () =>
-      console.log("AudioManager: received audio:playLobby");
-    const dbgRacing = () =>
-      console.log("AudioManager: received audio:playRacing");
+    const dbgLobby = () => IS_DEBUG && console.log("AudioManager: received audio:playLobby");
+    const dbgRacing = () => IS_DEBUG && console.log("AudioManager: received audio:playRacing");
     window.addEventListener("audio:playLobby", dbgLobby);
     window.addEventListener("audio:playRacing", dbgRacing);
 
@@ -276,9 +277,9 @@ export default function AudioManager() {
 
   const enableAudio = useCallback(async () => {
     const cur = currentAudioRef.current;
-    if (cur) {
+      if (cur) {
       try {
-        console.log("AudioManager: enableAudio() invoked — attempting play");
+        IS_DEBUG && console.log("AudioManager: enableAudio() invoked — attempting play");
         await cur.play();
         setRequiresUserGesture(false);
         await fadeVolume(cur, cur.volume || 0, 0.7, 800).catch(() => {});
@@ -317,10 +318,10 @@ export default function AudioManager() {
   // This helps when autoplay was blocked on mount — a single user gesture
   // anywhere on the page will trigger playback without needing the floating
   // button click specifically.
-  useEffect(() => {
+    useEffect(() => {
     if (!requiresUserGesture) return;
     const onUserGesture = () => {
-      console.log("AudioManager: user interaction detected, attempting resume");
+      IS_DEBUG && console.log("AudioManager: user interaction detected, attempting resume");
       enableAudio();
     };
     window.addEventListener("pointerdown", onUserGesture, { once: true });
