@@ -5,8 +5,10 @@ import {
   getGameState,
   getRoomState,
   createMatchToken,
+  adoptMatchFromToken,
   MATCH_DURATION_MS,
 } from "@/lib/gameState";
+import { claimMatchToken, getCurrentMatchToken } from "@/lib/matchStore";
 
 export async function POST(request: NextRequest) {
   try {
@@ -54,7 +56,30 @@ export async function POST(request: NextRequest) {
       checkAllReady()
     ) {
       const startedAt = Math.floor((Date.now() + 2000) / 1000) * 1000; // small delay
-      matchToken = createMatchToken(startedAt, MATCH_DURATION_MS);
+      const token = createMatchToken(startedAt, MATCH_DURATION_MS);
+      // Attempt to claim the canonical token in the shared store (Vercel KV)
+      // If claim succeeds, adopt it locally and return it. Otherwise read the
+      // existing canonical token and return that instead.
+      try {
+        const claimed = await claimMatchToken(token, MATCH_DURATION_MS);
+        if (claimed) {
+          matchToken = token;
+          try {
+            adoptMatchFromToken(matchToken);
+          } catch (e) {
+            console.warn("Failed to adopt match token on lobby worker:", e);
+          }
+        } else {
+          // Another worker already claimed a token — return that one instead
+          matchToken = (await getCurrentMatchToken()) || null;
+        }
+      } catch (e) {
+        console.warn("Error claiming match token, falling back:", e);
+        matchToken = token;
+        try {
+          adoptMatchFromToken(matchToken);
+        } catch (err) {}
+      }
     }
 
     // Return lobby state

@@ -237,6 +237,10 @@ export function getInstanceId() {
 // payloads containing `startedAt` and `durationMs`.
 import crypto from "crypto";
 
+// Optional shared token store (Vercel KV wrapper). Use for cross-instance
+// canonical match tokens when available.
+import { getCurrentMatchToken } from "@/lib/matchStore";
+
 // For demo builds we use a stable demo secret so signed tokens validate
 // across simple local deployments. In production you should set
 // `process.env.MATCH_SECRET` to a secure value.
@@ -287,11 +291,20 @@ export function getMatchToken() {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     if ((room as any).currentMatchToken) return (room as any).currentMatchToken;
-    // Do not auto-generate a token here. Token creation and starting the
-    // race should be done explicitly via `startRace()`. Auto-generating
-    // tokens on read caused navigation to `/race` to implicitly start
-    // matches.
-    return null;
+    // If we don't have an in-memory token, check the shared store so
+    // deployed multi-instance setups can discover the canonical token.
+    try {
+      const tk = getCurrentMatchToken();
+      // getCurrentMatchToken may be sync or return a Promise; handle both
+      if (tk && typeof (tk as any).then === "function") {
+        // async result — caller is sync so return null and let the lobby
+        // and game APIs surface the token in responses instead.
+        return null;
+      }
+      return (tk as unknown as string) || null;
+    } catch (e) {
+      return null;
+    }
   } catch (e) {
     return null;
   }
