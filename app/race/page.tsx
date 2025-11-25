@@ -12,6 +12,7 @@ import {
 import { Physics, RigidBody, CuboidCollider } from "@react-three/rapier";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import * as THREE from "three";
 import {
   EffectComposer,
@@ -210,6 +211,39 @@ function RaceClient() {
       } catch (e) {}
     };
   }, []);
+
+  // Redirect guard: if a player navigates to `/race` while there's no active
+  // racing match, send them back to the lobby. This avoids clients entering
+  // the race view when the server is still in lobby/finished state.
+  const router = useRouter();
+  useEffect(() => {
+    let mounted = true;
+    async function check() {
+      try {
+        const res = await fetch("/api/game", { method: "GET" });
+        if (!mounted) return;
+        if (!res.ok) {
+          // If we couldn't fetch status, send user to homepage as a fallback
+          router.replace("/");
+          return;
+        }
+        const data = await res.json();
+        if (!mounted) return;
+        // If we're not in a racing state, send user back to the lobby
+        if (data.gameState !== "racing") {
+          router.replace("/lobby");
+        }
+      } catch (e) {
+        try {
+          router.replace("/");
+        } catch (err) {}
+      }
+    }
+    check();
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
 
   // Procedural ground textures: subtle noise for roughness/bump maps
   const groundTextures = useMemo(() => {

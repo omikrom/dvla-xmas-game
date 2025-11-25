@@ -6,6 +6,7 @@ import {
   adoptMatchFromToken,
   getMatchToken,
   getGameState,
+  getRoomState,
   getDestructibleState,
   getTimerState,
   getLeaderboard,
@@ -53,6 +54,27 @@ export async function POST(request: NextRequest) {
         }
       }
     } catch (e) {}
+
+    // Prevent new players joining a running match unless they present the
+    // canonical matchToken. This avoids multiple overlapping matches and
+    // ensures everyone joins the same active game.
+    try {
+      const players = getRoomState();
+      const playerExists = players.some((p) => p.id === playerId);
+      const currentState = getGameState();
+      const canonicalToken = getMatchToken();
+      if (!playerExists && currentState === "racing") {
+        if (!body.matchToken || body.matchToken !== canonicalToken) {
+          return NextResponse.json(
+            { error: "match_in_progress" },
+            { status: 403 }
+          );
+        }
+      }
+    } catch (e) {
+      // If there's an error reading room state, fall back to conservative
+      // behavior and allow the create/update to proceed.
+    }
 
     // Update player input
     const createRes = await measure("createOrUpdatePlayer", () =>
@@ -131,5 +153,17 @@ export async function POST(request: NextRequest) {
       { error: "Internal server error" },
       { status: 500 }
     );
+  }
+}
+
+export async function GET() {
+  try {
+    return NextResponse.json({
+      gameState: getGameState(),
+      instanceId: getInstanceId(),
+      matchToken: getMatchToken(),
+    });
+  } catch (e) {
+    return NextResponse.json({ error: "failed" }, { status: 500 });
   }
 }

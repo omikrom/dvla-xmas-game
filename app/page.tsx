@@ -24,17 +24,6 @@ export default function Home() {
             style={{ flexDirection: "column" }}
             className="flex items-center justify-center gap-4"
           >
-            <img
-              src="/logo.png"
-              alt="DVLA Grand Theft Giftwrap"
-              onError={(e) =>
-                ((e.currentTarget as HTMLImageElement).style.display = "none")
-              }
-              className="w-20 h-20 object-contain"
-            />
-            <h1 className="text-5xl font-extrabold text-white tracking-tight">
-              The DVLA's
-            </h1>
             <h1 className="text-5xl font-extrabold text-white tracking-tight">
               <span className="text-[#c60f0f]"> Grand</span>{" "}
               <span className="text-[#fff]"> Theft</span>

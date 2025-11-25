@@ -287,15 +287,11 @@ export function getMatchToken() {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     if ((room as any).currentMatchToken) return (room as any).currentMatchToken;
-    // Auto-generate a demo token for convenience when none exists. This
-    // makes `matchToken` available in API responses for diagnostics/demo
-    // environments without requiring an explicit `startRace()` call.
-    const tok = createMatchToken(Date.now(), room.matchDurationMs || MATCH_DURATION_MS);
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    room.currentMatchToken = tok;
-    console.log(`[GameState] Generated demo matchToken=${tok.slice(0,20)}...`);
-    return tok;
+    // Do not auto-generate a token here. Token creation and starting the
+    // race should be done explicitly via `startRace()`. Auto-generating
+    // tokens on read caused navigation to `/race` to implicitly start
+    // matches.
+    return null;
   } catch (e) {
     return null;
   }
@@ -1168,18 +1164,42 @@ export function startRace() {
   if (room.gameState === "racing") {
     return;
   }
-  room.gameState = "racing";
-  room.matchDurationMs = MATCH_DURATION_MS;
-  room.raceStartTime = Date.now();
-  room.raceEndTime = room.raceStartTime + room.matchDurationMs;
-  // Create and store a signed match token so other serverless workers can
-  // adopt the same race timing without shared state.
+  // If another worker has already generated a canonical token, prefer it
+  // to avoid producing different start times across instances.
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore
-  room.currentMatchToken = createMatchToken(
-    room.raceStartTime,
-    room.matchDurationMs
-  );
+  const existingTok = (room as any).currentMatchToken;
+  if (existingTok) {
+    const payload = verifyMatchToken(existingTok);
+    if (payload) {
+      room.gameState = "racing";
+      room.matchDurationMs = payload.durationMs;
+      room.raceStartTime = payload.startedAt;
+      room.raceEndTime = payload.startedAt + payload.durationMs;
+      console.log(
+        `[GameState] startRace(): adopted existing token start=${new Date(
+          room.raceStartTime
+        ).toISOString()}`
+      );
+    }
+  }
+
+  // If we didn't adopt an existing token, create one now with a rounded
+  // start time (nearest second) to reduce tiny differences between
+  // concurrently-starting workers.
+  if (!room.raceStartTime) {
+    room.gameState = "racing";
+    room.matchDurationMs = MATCH_DURATION_MS;
+    const startedAt = Math.floor(Date.now() / 1000) * 1000;
+    room.raceStartTime = startedAt;
+    room.raceEndTime = room.raceStartTime + room.matchDurationMs;
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    room.currentMatchToken = createMatchToken(
+      room.raceStartTime,
+      room.matchDurationMs
+    );
+  }
   room.destructibles = createInitialDestructibles();
   room.deliveries = createInitialDeliveries();
   room.powerUps = createInitialPowerUps();
@@ -1370,7 +1390,6 @@ export function createOrUpdatePlayer(
     console.log(
       `[${INSTANCE_ID}] Created new player ${playerId} at position (${player.x}, ${player.y})`
     );
-    autoStartRaceIfNeeded();
     return player;
   } else {
     // Update existing player
@@ -1378,7 +1397,6 @@ export function createOrUpdatePlayer(
     player.steer = steer;
     player.throttle = throttle;
     player.lastUpdate = Date.now();
-    autoStartRaceIfNeeded();
     return player;
   }
 }
