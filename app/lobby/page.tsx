@@ -95,11 +95,27 @@ export default function LobbyPage() {
         });
 
         if (response.ok) {
-          const data: LobbyState = await response.json();
-          setLobbyState(data);
+          const data: any = await response.json();
+          // persist match token (if lobby provided one) so race clients can adopt it
+          try {
+            if (data.matchToken) {
+              window.sessionStorage.setItem("matchToken", data.matchToken);
+            }
+          } catch (e) {}
+          // update lobby UI
+          setLobbyState({
+            players: data.players || [],
+            gameState: data.gameState,
+          });
 
-          // Redirect to race if game started
-          if (data.gameState === "racing") {
+          // If lobby returned a signed matchToken, navigate to the race page
+          // so the race client can include the token in its first `/api/game`
+          // requests and cause the canonical worker to adopt/start the match.
+          if (data.matchToken) {
+            try {
+              router.push(`/race?name=${encodeURIComponent(name)}`);
+            } catch (e) {}
+          } else if (data.gameState === "racing") {
             router.push(`/race?name=${encodeURIComponent(name)}`);
           }
         }

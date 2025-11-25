@@ -4,7 +4,8 @@ import {
   checkAllReady,
   getGameState,
   getRoomState,
-  startRace,
+  createMatchToken,
+  MATCH_DURATION_MS,
 } from "@/lib/gameState";
 
 export async function POST(request: NextRequest) {
@@ -40,19 +41,20 @@ export async function POST(request: NextRequest) {
       } catch (e) {}
     }
 
-    // Check if all players are ready and start game
+    // Check if all players are ready and prepare a signed match token for
+    // clients to adopt. We do not start the race directly on the lobby
+    // worker to avoid multiple workers initiating overlapping matches in
+    // multi-instance deployments. The client will include the returned
+    // `matchToken` in subsequent `/api/game` requests so whichever worker
+    // first receives it can adopt and initialize the canonical match.
     const currentState = getGameState();
+    let matchToken: string | null = null;
     if (
       (currentState === "lobby" || currentState === "finished") &&
       checkAllReady()
     ) {
-      // Wait a moment then start
-      setTimeout(() => {
-        const latestState = getGameState();
-        if (latestState === "lobby" || latestState === "finished") {
-          startRace();
-        }
-      }, 2000);
+      const startedAt = Math.floor((Date.now() + 2000) / 1000) * 1000; // small delay
+      matchToken = createMatchToken(startedAt, MATCH_DURATION_MS);
     }
 
     // Return lobby state
@@ -65,6 +67,7 @@ export async function POST(request: NextRequest) {
         color: p.color,
       })),
       gameState: getGameState(),
+      matchToken,
     });
   } catch (error) {
     console.error("Error in lobby:", error);

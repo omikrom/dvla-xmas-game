@@ -164,7 +164,7 @@ const PLAYER_TIMEOUT = 10000;
 export const CAR_DESTROY_THRESHOLD = 150;
 // reduce TTL so debris clears faster and feels less spammy
 const DEBRIS_TTL = 4000; // ms
-const MATCH_DURATION_MS = 3 * 60 * 1000; // 3 minutes
+export const MATCH_DURATION_MS = 3 * 60 * 1000; // 3 minutes
 const MIN_PHYSICS_STEP_MS = 16; // avoid running the full solver more than ~60fps per server tick
 // Server-side repair tuning
 const SERVER_REPAIR_DELAY_MS = 20000; // 20s (legacy per-destruction delay)
@@ -306,6 +306,10 @@ export function adoptMatchFromToken(token?: string | null) {
       !room.raceEndTime ||
       room.raceEndTime < payload.startedAt + payload.durationMs
     ) {
+      // initialize full racing state from the adopted token. This ensures
+      // that whichever worker first receives a client-provided token will
+      // properly initialize destructibles, powerups and schedule finalization
+      // so all workers can adopt the same canonical match timing.
       room.raceStartTime = payload.startedAt;
       room.raceEndTime = payload.startedAt + payload.durationMs;
       room.matchDurationMs = payload.durationMs;
@@ -313,6 +317,46 @@ export function adoptMatchFromToken(token?: string | null) {
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore
       room.currentMatchToken = token;
+      // If we're not already in racing state, initialize the world similar
+      // to `startRace()` so this worker becomes the authoritative instance
+      // for the canonical match timing and world initialization.
+      if (room.gameState !== "racing") {
+        room.gameState = "racing";
+        room.destructibles = createInitialDestructibles();
+        room.deliveries = createInitialDeliveries();
+        room.powerUps = createInitialPowerUps();
+        room.leaderboard = [];
+        room.events = [];
+        room.lastPhysicsUpdate = Date.now();
+        for (const player of room.players.values()) {
+          resetPlayerForRace(player);
+        }
+        // Clear any previously scheduled finalize and schedule a new one
+        try {
+          if (room.scheduledFinalize) {
+            clearTimeout(room.scheduledFinalize as any);
+            room.scheduledFinalize = null;
+          }
+        } catch (e) {}
+        try {
+          const delay = Math.max(
+            0,
+            (room.raceEndTime || Date.now()) - Date.now()
+          );
+          room.scheduledFinalize = setTimeout(() => {
+            try {
+              if (room.gameState === "racing") {
+                const now = Date.now();
+                if (!room.raceEndTime || now >= room.raceEndTime) {
+                  finalizeRace();
+                }
+              }
+            } catch (err) {
+              console.error("Error in scheduled finalizeRace (adopt):", err);
+            }
+          }, delay + 50) as unknown as ReturnType<typeof setTimeout>;
+        } catch (e) {}
+      }
       recordSystemEvent(
         `Adopted match token: start=${new Date(
           payload.startedAt

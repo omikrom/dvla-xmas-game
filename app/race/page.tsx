@@ -386,6 +386,12 @@ function RaceClient() {
     Map<string, { x: number; y: number }>
   >(new Map());
   const matchTokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    try {
+      const mt = sessionStorage.getItem("matchToken");
+      if (mt) matchTokenRef.current = mt;
+    } catch (e) {}
+  }, []);
   const carDamageRef = useRef<Map<string, number>>(new Map());
   const collisionCooldownRef = useRef<Map<string, number>>(new Map());
   const collisionSpeedRef = useRef<Map<string, number>>(new Map());
@@ -777,15 +783,22 @@ function RaceClient() {
                   : rtt / 2;
               console.log("latency", { rtt, processing, approxOneWay });
             } else {
-              console.log("latency: clientSendTs not present in response/timing");
+              console.log(
+                "latency: clientSendTs not present in response/timing"
+              );
             }
 
             // Position delta: server vs interpolated visual
             if (playerId) {
-              const serverMe = (data.players || []).find((p: any) => p.id === playerId);
+              const serverMe = (data.players || []).find(
+                (p: any) => p.id === playerId
+              );
               const localPos = interpolatedPositionsRef.current.get(playerId);
               if (serverMe && localPos) {
-                const delta = Math.hypot(serverMe.x - localPos.x, serverMe.y - localPos.y);
+                const delta = Math.hypot(
+                  serverMe.x - localPos.x,
+                  serverMe.y - localPos.y
+                );
                 console.log("position-delta", {
                   delta,
                   server: { x: serverMe.x, y: serverMe.y },
