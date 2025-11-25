@@ -7,8 +7,13 @@ import {
   createMatchToken,
   adoptMatchFromToken,
   MATCH_DURATION_MS,
+  verifyMatchToken,
 } from "@/lib/gameState";
-import { claimMatchToken, getCurrentMatchToken } from "@/lib/matchStore";
+import {
+  claimMatchToken,
+  getCurrentMatchToken,
+  releaseMatchToken,
+} from "@/lib/matchStore";
 
 export async function POST(request: NextRequest) {
   try {
@@ -62,16 +67,64 @@ export async function POST(request: NextRequest) {
       // existing canonical token and return that instead.
       try {
         const claimed = await claimMatchToken(token, MATCH_DURATION_MS);
+        // Diagnostic log: show which worker claimed/failed to claim
+        try {
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-ignore
+          const iid = require("@/lib/gameState").getInstanceId();
+          console.log(`[lobby][${iid}] claimMatchToken -> ${claimed}`);
+        } catch (e) {
+          console.log(`[lobby] claimMatchToken -> ${claimed}`);
+        }
+
         if (claimed) {
           matchToken = token;
           try {
             adoptMatchFromToken(matchToken);
+            try {
+              // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+              // @ts-ignore
+              const iid = require("@/lib/gameState").getInstanceId();
+              console.log(`[lobby][${iid}] adopted token locally`);
+            } catch (e) {}
           } catch (e) {
             console.warn("Failed to adopt match token on lobby worker:", e);
           }
         } else {
           // Another worker already claimed a token — return that one instead
           matchToken = (await getCurrentMatchToken()) || null;
+          // Defensive: if the returned token is expired, release it and clear
+          // the value so we don't hand out finished matches to late joiners.
+          try {
+            if (matchToken) {
+              const payload = verifyMatchToken(matchToken as string);
+              if (
+                !payload ||
+                payload.startedAt + payload.durationMs <= Date.now()
+              ) {
+                try {
+                  await releaseMatchToken();
+                } catch (e) {}
+                matchToken = null;
+                try {
+                  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                  // @ts-ignore
+                  const iid = require("@/lib/gameState").getInstanceId();
+                  console.log(
+                    `[lobby][${iid}] discovered expired canonical token, released`
+                  );
+                } catch (e) {}
+              }
+            }
+          } catch (e) {}
+          try {
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore
+            const iid = require("@/lib/gameState").getInstanceId();
+            console.log(
+              `[lobby][${iid}] did not claim token, returning existing=${!!matchToken}`
+            );
+          } catch (e) {}
         }
       } catch (e) {
         console.warn("Error claiming match token, falling back:", e);

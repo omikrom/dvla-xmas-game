@@ -239,7 +239,7 @@ import crypto from "crypto";
 
 // Optional shared token store (Vercel KV wrapper). Use for cross-instance
 // canonical match tokens when available.
-import { getCurrentMatchToken } from "@/lib/matchStore";
+import { getCurrentMatchToken, releaseMatchToken } from "@/lib/matchStore";
 
 // For demo builds we use a stable demo secret so signed tokens validate
 // across simple local deployments. In production you should set
@@ -1352,6 +1352,15 @@ function finalizeRace() {
       clearTimeout(room.scheduledFinalize as any);
       room.scheduledFinalize = null;
     }
+  } catch (e) {}
+
+  // Release canonical token from the shared store so late-joiners won't
+  // receive an already-finished token while the store TTL padding remains.
+  try {
+    // fire-and-forget; log on failure
+    releaseMatchToken().catch((err: any) =>
+      console.warn("[GameState] releaseMatchToken failed", err)
+    );
   } catch (e) {}
 }
 

@@ -716,241 +716,297 @@ function RaceClient() {
   useEffect(() => {
     if (!playerId || !name) return;
 
-    dbg("Starting game loop for player:", playerId, name);
+    dbg("Starting adaptive game loop for player:", playerId, name);
 
-    const updateInterval = setInterval(async () => {
-      try {
-        // Standardize steering signs: left = -1, right = +1 so joystick X
-        // (positive = right) matches keyboard inputs.
-        const keyboardSteer =
-          (keys.ArrowLeft || keys.a ? -1 : 0) +
-          (keys.ArrowRight || keys.d ? 1 : 0);
-        const keyboardThrottle =
-          (keys.ArrowUp || keys.w ? 1 : 0) +
-          (keys.ArrowDown || keys.s ? -0.5 : 0);
-        const steer = clamp(keyboardSteer + joystickValueRef.current.x);
-        // Use joystick Y such that pushing up yields forward motion.
-        const throttle = clamp(
-          keyboardThrottle -
-            joystickValueRef.current.y +
-            buttonThrottleRef.current
-        );
+    let mounted = true;
 
-        const clientSendTs = Date.now();
+    const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
-        const response = await fetch("/api/game", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            playerId,
-            name,
-            steer,
-            throttle,
-            // Send last known interpolated position and angle so any
-            // serverless worker that hasn't seen this player can initialize
-            // them at the client's current location instead of a random spawn.
-            lastX: interpolatedPositionsRef.current.get(playerId)?.x,
-            lastY: interpolatedPositionsRef.current.get(playerId)?.y,
-            lastAngle: cars.find((c) => c.id === playerId)?.angle,
-            // Diagnostics: client send timestamp for RTT measurement
-            clientSendTs,
-            // include current matchToken (if any) so other instances can adopt
-            matchToken: matchTokenRef.current,
-          }),
-        });
+    (async () => {
+      // Exponential backoff state for transient network errors
+      let backoff = 0;
+      while (mounted) {
+        try {
+          // Standardize steering signs: left = -1, right = +1 so joystick X
+          // (positive = right) matches keyboard inputs.
+          const keyboardSteer =
+            (keys.ArrowLeft || keys.a ? -1 : 0) +
+            (keys.ArrowRight || keys.d ? 1 : 0);
+          const keyboardThrottle =
+            (keys.ArrowUp || keys.w ? 1 : 0) +
+            (keys.ArrowDown || keys.s ? -0.5 : 0);
+          const steer = clamp(keyboardSteer + joystickValueRef.current.x);
+          // Use joystick Y such that pushing up yields forward motion.
+          const throttle = clamp(
+            keyboardThrottle -
+              joystickValueRef.current.y +
+              buttonThrottleRef.current
+          );
 
-        if (response.ok) {
-          const data = await response.json();
+          const clientSendTs = Date.now();
 
-          try {
-            const clientReceiveTs = Date.now();
+          const response = await fetch("/api/game", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              playerId,
+              name,
+              steer,
+              throttle,
+              // Send last known interpolated position and angle so any
+              // serverless worker that hasn't seen this player can initialize
+              // them at the client's current location instead of a random spawn.
+              lastX: interpolatedPositionsRef.current.get(playerId)?.x,
+              lastY: interpolatedPositionsRef.current.get(playerId)?.y,
+              lastAngle: cars.find((c) => c.id === playerId)?.angle,
+              // Diagnostics: client send timestamp for RTT measurement
+              clientSendTs,
+              // include current matchToken (if any) so other instances can adopt
+              matchToken: matchTokenRef.current,
+            }),
+          });
 
-            console.log("game update", {
-              instanceId: data.instanceId,
-              serverFps: data.serverFps,
-              timing: data.timing,
-            });
+          if (response.ok) {
+            const data = await response.json();
 
-            // RTT
-            if (data.timing && data.timing.clientSendMs != null) {
-              const rtt = clientReceiveTs - data.timing.clientSendMs;
-              const processing = data.timing.processingMs ?? null;
-              const approxOneWay =
-                processing != null
-                  ? Math.max(0, (rtt - processing) / 2)
-                  : rtt / 2;
-              console.log("latency", { rtt, processing, approxOneWay });
-            } else {
-              console.log(
-                "latency: clientSendTs not present in response/timing"
-              );
-            }
-
-            // Position delta: server vs interpolated visual
-            if (playerId) {
-              const serverMe = (data.players || []).find(
-                (p: any) => p.id === playerId
-              );
-              const localPos = interpolatedPositionsRef.current.get(playerId);
-              if (serverMe && localPos) {
-                const delta = Math.hypot(
-                  serverMe.x - localPos.x,
-                  serverMe.y - localPos.y
-                );
-                console.log("position-delta", {
-                  delta,
-                  server: { x: serverMe.x, y: serverMe.y },
-                  visual: localPos,
-                });
-              }
-            }
-          } catch (e) {
-            console.warn("diagnostic logging failed", e);
-          }
-          // persist matchToken from server so we can include it in future requests
-          if (data.matchToken) matchTokenRef.current = data.matchToken;
-          // Defensive: deduplicate players by id in case server returns
-          // duplicate entries (observed as flickering/dual-render issues).
-          const rawPlayers = data.players || [];
-          const playersById = new Map<string, any>();
-          for (const p of rawPlayers) {
-            playersById.set(p.id, p);
-          }
-          const dedupedPlayers = Array.from(playersById.values());
-          setCars(dedupedPlayers);
-          setServerFps(data.serverFps || 0);
-          // Compare destructibles for changes (destroyed state & debris counts)
-          try {
-            const newDestructibles: DestructibleState[] =
-              data.destructibles || [];
-            const prevMap = new Map(
-              destructiblesRef.current.map((d) => [d.id, d])
-            );
-            for (const nd of newDestructibles) {
-              const prev = prevMap.get(nd.id);
-              if (prev && !prev.destroyed && nd.destroyed) {
-                pushDebug(`Destructible destroyed: ${nd.id}`);
-              }
-              if (
-                prev &&
-                prev.debris &&
-                nd.debris &&
-                prev.debris.length !== nd.debris.length
-              ) {
-                pushDebug(
-                  `Debris count for ${nd.id}: ${prev.debris.length} -> ${nd.debris.length}`
-                );
-              }
-            }
-            destructiblesRef.current = newDestructibles;
-            setDestructibles(newDestructibles);
-          } catch (e) {
-            // Fallback
-            setDestructibles(data.destructibles || []);
-          }
-          // dispatch game state change events for audio manager
-          const prevState = ((): string | null => {
-            // try to read previous state from a data attribute if present
             try {
-              // simple heuristic: track last state on window
+              const clientReceiveTs = Date.now();
+
+              console.log("game update", {
+                instanceId: data.instanceId,
+                serverFps: data.serverFps,
+                timing: data.timing,
+              });
+
+              // RTT
+              let rtt = 0;
+              let approxOneWay = 0;
+              if (data.timing && data.timing.clientSendMs != null) {
+                rtt = clientReceiveTs - data.timing.clientSendMs;
+                const processing = data.timing.processingMs ?? null;
+                approxOneWay =
+                  processing != null
+                    ? Math.max(0, (rtt - processing) / 2)
+                    : rtt / 2;
+                console.log("latency", {
+                  rtt,
+                  processing: data.timing.processingMs,
+                  approxOneWay,
+                });
+              } else {
+                console.log(
+                  "latency: clientSendTs not present in response/timing"
+                );
+              }
+
+              // Position delta: server vs interpolated visual
+              if (playerId) {
+                const serverMe = (data.players || []).find(
+                  (p: any) => p.id === playerId
+                );
+                const localPos = interpolatedPositionsRef.current.get(playerId);
+                if (serverMe && localPos) {
+                  const delta = Math.hypot(
+                    serverMe.x - localPos.x,
+                    serverMe.y - localPos.y
+                  );
+                  console.log("position-delta", {
+                    delta,
+                    server: { x: serverMe.x, y: serverMe.y },
+                    visual: localPos,
+                  });
+                }
+              }
+            } catch (e) {
+              console.warn("diagnostic logging failed", e);
+            }
+            // persist matchToken from server so we can include it in future requests
+            if (data.matchToken) {
+              matchTokenRef.current = data.matchToken;
+              try {
+                sessionStorage.setItem("matchToken", data.matchToken);
+              } catch (e) {}
+            }
+            // Defensive: deduplicate players by id in case server returns
+            // duplicate entries (observed as flickering/dual-render issues).
+            const rawPlayers = data.players || [];
+            const playersById = new Map<string, any>();
+            for (const p of rawPlayers) {
+              playersById.set(p.id, p);
+            }
+            const dedupedPlayers = Array.from(playersById.values());
+            setCars(dedupedPlayers);
+            setServerFps(data.serverFps || 0);
+            // Compare destructibles for changes (destroyed state & debris counts)
+            try {
+              const newDestructibles: DestructibleState[] =
+                data.destructibles || [];
+              const prevMap = new Map(
+                destructiblesRef.current.map((d) => [d.id, d])
+              );
+              for (const nd of newDestructibles) {
+                const prev = prevMap.get(nd.id);
+                if (prev && !prev.destroyed && nd.destroyed) {
+                  pushDebug(`Destructible destroyed: ${nd.id}`);
+                }
+                if (
+                  prev &&
+                  prev.debris &&
+                  nd.debris &&
+                  prev.debris.length !== nd.debris.length
+                ) {
+                  pushDebug(
+                    `Debris count for ${nd.id}: ${prev.debris.length} -> ${nd.debris.length}`
+                  );
+                }
+              }
+              destructiblesRef.current = newDestructibles;
+              setDestructibles(newDestructibles);
+            } catch (e) {
+              // Fallback
+              setDestructibles(data.destructibles || []);
+            }
+            // dispatch game state change events for audio manager
+            const prevState = ((): string | null => {
+              try {
+                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                // @ts-ignore
+                return window.__lastGameState || null;
+              } catch (e) {
+                return null;
+              }
+            })();
+            const newState = data.gameState || "lobby";
+            setGameState(newState);
+            try {
               // eslint-disable-next-line @typescript-eslint/ban-ts-comment
               // @ts-ignore
-              return window.__lastGameState || null;
-            } catch (e) {
-              return null;
-            }
-          })();
-          const newState = data.gameState || "lobby";
-          setGameState(newState);
-          try {
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-            // @ts-ignore
-            window.__lastGameState = newState;
-          } catch (e) {}
-          if (prevState !== newState) {
-            if (newState === "racing") {
-              window.dispatchEvent(new CustomEvent("audio:playRacing"));
-            } else {
-              window.dispatchEvent(new CustomEvent("audio:playLobby"));
-            }
-            // If the game has just finished, POST the final leaderboard to the instance leaderboard API
-            try {
-              if (newState === "finished") {
-                (async () => {
-                  try {
-                    const body = { leaderboard: data.leaderboard || [] };
-                    await fetch("/api/leaderboard", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(body),
-                    });
-                  } catch (e) {
-                    // ignore network errors
-                  }
-                })();
-              }
+              window.__lastGameState = newState;
             } catch (e) {}
-          }
-          setTimerState(data.timer || null);
-          setLeaderboard(data.leaderboard || []);
-          setDeliveries(data.deliveries || []);
-          setMatchEvents(data.events || []);
-          // Push any new match/system events into the debug panel for visibility
-          if (data.events && Array.isArray(data.events)) {
-            for (const ev of data.events) {
-              if (!knownEventIdsRef.current.has(ev.id)) {
-                knownEventIdsRef.current.add(ev.id);
-                pushDebug(
-                  `${new Date(ev.timestamp).toLocaleTimeString()} ${
-                    ev.description
-                  }`
-                );
+            if (prevState !== newState) {
+              if (newState === "racing") {
+                window.dispatchEvent(new CustomEvent("audio:playRacing"));
+              } else {
+                window.dispatchEvent(new CustomEvent("audio:playLobby"));
               }
-            }
-          }
-          // Always sync server powerups (use empty array fallback) to avoid
-          // keeping stale client-side powerups when the server has none.
-          setPowerUps(data.powerUps || []);
-          if (playerId && data.players) {
-            const me = (data.players || []).find((p: any) => p.id === playerId);
-            if (me && me.activePowerUps) {
-              setActivePowerUps(me.activePowerUps as any[]);
-              // Log speed activation/ending only on change (rising/falling edge)
-              const speedMult = (me.activePowerUps || [])
-                .filter((a: any) => a.type === "speed")
-                .reduce((acc: number, a: any) => acc * (a.value || 1), 1);
-              const prev = prevSpeedMultRef.current || 1;
-              if (speedMult !== prev) {
-                if (speedMult > prev) {
-                  pushDebug(
-                    `PowerUp activated: speed x${speedMult.toFixed(2)}`
-                  );
-                } else if (speedMult < prev) {
-                  pushDebug(`PowerUp ended: speed effect ended`);
+              // If the game has just finished, clear the stored match token and
+              // POST the final leaderboard to the instance leaderboard API
+              try {
+                if (newState === "finished") {
+                  try {
+                    sessionStorage.removeItem("matchToken");
+                  } catch (e) {}
+                  (async () => {
+                    try {
+                      const body = { leaderboard: data.leaderboard || [] };
+                      await fetch("/api/leaderboard", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(body),
+                      });
+                    } catch (e) {
+                      // ignore network errors
+                    }
+                  })();
                 }
-                prevSpeedMultRef.current = speedMult;
-              }
-            } else {
-              setActivePowerUps([]);
-              // If we had a speed multiplier active and now none, log the end
-              if (prevSpeedMultRef.current && prevSpeedMultRef.current !== 1) {
-                pushDebug(`PowerUp ended: speed effect ended`);
-                prevSpeedMultRef.current = 1;
+              } catch (e) {}
+            }
+            setTimerState(data.timer || null);
+            setLeaderboard(data.leaderboard || []);
+            setDeliveries(data.deliveries || []);
+            setMatchEvents(data.events || []);
+            // Push any new match/system events into the debug panel for visibility
+            if (data.events && Array.isArray(data.events)) {
+              for (const ev of data.events) {
+                if (!knownEventIdsRef.current.has(ev.id)) {
+                  knownEventIdsRef.current.add(ev.id);
+                  pushDebug(
+                    `${new Date(ev.timestamp).toLocaleTimeString()} ${
+                      ev.description
+                    }`
+                  );
+                }
               }
             }
+            // Always sync server powerups (use empty array fallback) to avoid
+            // keeping stale client-side powerups when the server has none.
+            setPowerUps(data.powerUps || []);
+            if (playerId && data.players) {
+              const me = (data.players || []).find(
+                (p: any) => p.id === playerId
+              );
+              if (me && me.activePowerUps) {
+                setActivePowerUps(me.activePowerUps as any[]);
+                // Log speed activation/ending only on change (rising/falling edge)
+                const speedMult = (me.activePowerUps || [])
+                  .filter((a: any) => a.type === "speed")
+                  .reduce((acc: number, a: any) => acc * (a.value || 1), 1);
+                const prev = prevSpeedMultRef.current || 1;
+                if (speedMult !== prev) {
+                  if (speedMult > prev) {
+                    pushDebug(
+                      `PowerUp activated: speed x${speedMult.toFixed(2)}`
+                    );
+                  } else if (speedMult < prev) {
+                    pushDebug(`PowerUp ended: speed effect ended`);
+                  }
+                  prevSpeedMultRef.current = speedMult;
+                }
+              } else {
+                setActivePowerUps([]);
+                // If we had a speed multiplier active and now none, log the end
+                if (
+                  prevSpeedMultRef.current &&
+                  prevSpeedMultRef.current !== 1
+                ) {
+                  pushDebug(`PowerUp ended: speed effect ended`);
+                  prevSpeedMultRef.current = 1;
+                }
+              }
+            }
+            setHasLoadedScene(true);
+
+            // compute adaptive delay based on server fps and measured rtt
+            let targetHz = Math.max(6, Math.min(data.serverFps || 15, 30));
+            let nextDelay = Math.round(1000 / targetHz);
+            // Prefer a slightly slower poll if network latency is high
+            try {
+              const timing = data.timing || {};
+              const rtt =
+                typeof timing.clientSendMs === "number"
+                  ? Date.now() - timing.clientSendMs
+                  : 0;
+              if (rtt > 200) nextDelay = Math.max(nextDelay, 200);
+              if (rtt > 500) nextDelay = Math.max(nextDelay, 500);
+            } catch (e) {}
+
+            // reset backoff on success
+            backoff = 0;
+            // sleep until next iteration
+            if (!mounted) break;
+            await sleep(nextDelay);
+            continue;
+          } else {
+            // non-ok response - small delay before retry
+            await sleep(250 + Math.min(2000, backoff * 200));
+            backoff = Math.min(10, backoff + 1);
+            continue;
           }
-          setHasLoadedScene(true);
+        } catch (error) {
+          console.error("Error updating game state:", error);
+          // On network error, back off exponentially
+          const backoffMs = Math.min(5000, 250 * Math.pow(2, Math.min(8, 1)));
+          await sleep(backoffMs);
+          continue;
         }
-      } catch (error) {
-        console.error("Error updating game state:", error);
       }
-    }, 50);
+    })();
 
     return () => {
-      dbg("Stopping game loop");
-      clearInterval(updateInterval);
+      dbg("Stopping adaptive game loop");
+      mounted = false;
     };
   }, [playerId, name]);
 
