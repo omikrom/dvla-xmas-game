@@ -85,7 +85,9 @@ export async function POST(request: NextRequest) {
           // include a quick log for diagnostics
           console.log(`[api/game] adopted match token from client`);
         } else {
-          console.log(`[api/game] adoptMatchFromToken returned false for provided token`);
+          console.log(
+            `[api/game] adoptMatchFromToken returned false for provided token`
+          );
         }
       }
     } catch (e) {
@@ -104,11 +106,17 @@ export async function POST(request: NextRequest) {
             if (Array.isArray(snap.destructibles)) {
               // eslint-disable-next-line @typescript-eslint/ban-ts-comment
               // @ts-ignore
-              r.destructibles = new Map(snap.destructibles.map((d: any) => [d.id, d]));
+              r.destructibles = new Map(
+                snap.destructibles.map((d: any) => [d.id, d])
+              );
             }
-            r.deliveries = Array.isArray(snap.deliveries) ? snap.deliveries : [];
+            r.deliveries = Array.isArray(snap.deliveries)
+              ? snap.deliveries
+              : [];
             r.powerUps = Array.isArray(snap.powerUps) ? snap.powerUps : [];
-            r.leaderboard = Array.isArray(snap.leaderboard) ? snap.leaderboard : [];
+            r.leaderboard = Array.isArray(snap.leaderboard)
+              ? snap.leaderboard
+              : [];
             r.events = Array.isArray(snap.events) ? snap.events : [];
             r.lastPhysicsUpdate = Date.now();
           } catch (err) {

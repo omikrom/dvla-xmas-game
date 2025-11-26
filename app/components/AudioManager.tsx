@@ -75,7 +75,8 @@ export default function AudioManager() {
     // initialise persisted audio state
     try {
       const s = readAudioState();
-      lastVolumeRef.current = typeof s.volume === "number" ? s.volume : lastVolumeRef.current;
+      lastVolumeRef.current =
+        typeof s.volume === "number" ? s.volume : lastVolumeRef.current;
       desiredStateRef.current = s.desired || "playing";
     } catch (e) {}
 
@@ -208,7 +209,10 @@ export default function AudioManager() {
         handlePlayLobby();
         try {
           desiredStateRef.current = "playing";
-          writeAudioState({ desired: "playing", volume: lastVolumeRef.current });
+          writeAudioState({
+            desired: "playing",
+            volume: lastVolumeRef.current,
+          });
         } catch (e) {}
       }
     };
@@ -250,14 +254,14 @@ export default function AudioManager() {
         following.onended = nextAudio.onended;
       };
       // perform crossfade
-        const target = Math.max(0, Math.min(1, lastVolumeRef.current || 0.7));
-        await Promise.all([
-          fadeVolume(nextAudio, 0, target, 900).catch(() => {}),
-          old
-            ? fadeVolume(old, old.volume, 0, 900).catch(() => {})
-            : Promise.resolve(),
-        ]).catch(() => {});
-        lastVolumeRef.current = target;
+      const target = Math.max(0, Math.min(1, lastVolumeRef.current || 0.7));
+      await Promise.all([
+        fadeVolume(nextAudio, 0, target, 900).catch(() => {}),
+        old
+          ? fadeVolume(old, old.volume, 0, 900).catch(() => {})
+          : Promise.resolve(),
+      ]).catch(() => {});
+      lastVolumeRef.current = target;
       try {
         old && old.pause();
       } catch (e) {}
@@ -295,7 +299,10 @@ export default function AudioManager() {
           );
         } catch (e) {}
         try {
-          writeAudioState({ desired: desiredStateRef.current || "playing", volume: lastVolumeRef.current });
+          writeAudioState({
+            desired: desiredStateRef.current || "playing",
+            volume: lastVolumeRef.current,
+          });
         } catch (e) {}
       } catch (e) {}
     };

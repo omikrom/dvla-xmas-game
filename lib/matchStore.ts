@@ -268,7 +268,8 @@ export async function getMatchSnapshot() {
         const t0 = nowMs();
         const val = await r.get(`${KEY}:snapshot`);
         const dt = nowMs() - t0;
-        if (dt > 10) console.log(`[matchStore] redis GET snapshot took ${dt}ms`);
+        if (dt > 10)
+          console.log(`[matchStore] redis GET snapshot took ${dt}ms`);
         return val ? JSON.parse(val) : null;
       } catch (e) {
         console.warn("[matchStore] redis get snapshot failed", String(e));
@@ -348,11 +349,11 @@ export async function releaseMatchToken() {
     const kv = await getKvClient();
     if (kv) {
       try {
-          await kvClient.del(KEY);
-          try {
-            await kvClient.del(`${KEY}:owner`);
-            await kvClient.del(`${KEY}:snapshot`);
-          } catch (err) {}
+        await kvClient.del(KEY);
+        try {
+          await kvClient.del(`${KEY}:owner`);
+          await kvClient.del(`${KEY}:snapshot`);
+        } catch (err) {}
         return true;
       } catch (e) {
         console.warn("[matchStore] KV delete failed", String(e));

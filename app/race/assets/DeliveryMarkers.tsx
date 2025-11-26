@@ -140,7 +140,11 @@ function CarriedDelivery({
     );
     if (interpolatedPos) {
       try {
-        if (delivery.carrierId && localPlayerId && delivery.carrierId === localPlayerId) {
+        if (
+          delivery.carrierId &&
+          localPlayerId &&
+          delivery.carrierId === localPlayerId
+        ) {
           // local player: snap to visual so held present feels immediate
           groupRef.current.position.x = interpolatedPos.x;
           groupRef.current.position.z = interpolatedPos.y;

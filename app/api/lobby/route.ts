@@ -91,14 +91,28 @@ export async function POST(request: NextRequest) {
             try {
               const r = getRoomState();
               const snapshot = {
-                destructibles: r ? (require("@/lib/gameState").getDestructibleState() || []) : [],
-                deliveries: r ? (require("@/lib/gameState").getDeliveries() || []) : [],
-                powerUps: r ? (require("@/lib/gameState").getPowerUps() || []) : [],
-                leaderboard: r ? (require("@/lib/gameState").getLeaderboard() || []) : [],
-                events: r ? (require("@/lib/gameState").getMatchEvents() || []) : [],
+                destructibles: r
+                  ? require("@/lib/gameState").getDestructibleState() || []
+                  : [],
+                deliveries: r
+                  ? require("@/lib/gameState").getDeliveries() || []
+                  : [],
+                powerUps: r
+                  ? require("@/lib/gameState").getPowerUps() || []
+                  : [],
+                leaderboard: r
+                  ? require("@/lib/gameState").getLeaderboard() || []
+                  : [],
+                events: r
+                  ? require("@/lib/gameState").getMatchEvents() || []
+                  : [],
               };
               try {
-                await saveMatchSnapshot(matchToken, snapshot, MATCH_DURATION_MS);
+                await saveMatchSnapshot(
+                  matchToken,
+                  snapshot,
+                  MATCH_DURATION_MS
+                );
               } catch (e) {
                 console.warn("Failed to save match snapshot:", e);
               }

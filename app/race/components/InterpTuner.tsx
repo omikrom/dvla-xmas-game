@@ -29,9 +29,13 @@ export default function InterpTuner({ visible }: { visible: boolean }) {
   const [teleportThreshold, setTeleportThreshold] = useState<number>(
     readStored("teleportThreshold", 25)
   );
-  const [predSpeed, setPredSpeed] = useState<number>(readStored("predSpeed", 6));
+  const [predSpeed, setPredSpeed] = useState<number>(
+    readStored("predSpeed", 6)
+  );
   const [predDt, setPredDt] = useState<number>(readStored("predDt", 125));
-  const [presentTau, setPresentTau] = useState<number>(readStored("presentTau", 387));
+  const [presentTau, setPresentTau] = useState<number>(
+    readStored("presentTau", 387)
+  );
 
   // Ensure sessionStorage holds sensible defaults for these tuner keys so the
   // runtime reads the user's preferred values even before manual adjustment.
@@ -65,7 +69,15 @@ export default function InterpTuner({ visible }: { visible: boolean }) {
     (window as any).__GAME_TUNER.predDt = predDt;
     // presentTau in ms
     (window as any).__GAME_TUNER.presentTau = presentTau;
-  }, [interpolationDelay, correctionMs, correctThreshold, teleportThreshold, predSpeed, predDt, presentTau]);
+  }, [
+    interpolationDelay,
+    correctionMs,
+    correctThreshold,
+    teleportThreshold,
+    predSpeed,
+    predDt,
+    presentTau,
+  ]);
 
   useEffect(() => {
     writeStored("delay", interpolationDelay);
@@ -75,7 +87,15 @@ export default function InterpTuner({ visible }: { visible: boolean }) {
     writeStored("predSpeed", predSpeed);
     writeStored("predDt", predDt);
     writeStored("presentTau", presentTau);
-  }, [interpolationDelay, correctionMs, correctThreshold, teleportThreshold, predSpeed, predDt, presentTau]);
+  }, [
+    interpolationDelay,
+    correctionMs,
+    correctThreshold,
+    teleportThreshold,
+    predSpeed,
+    predDt,
+    presentTau,
+  ]);
 
   if (!visible) return null;
 

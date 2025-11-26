@@ -138,7 +138,11 @@ export default function RacePage() {
               // Throttled logging: log on state change or once every 5 polls
               try {
                 pollCount++;
-                const changed = !prevPollState || prevPollState.gameState !== d2.gameState || JSON.stringify(prevPollState.timer) !== JSON.stringify(d2.timer);
+                const changed =
+                  !prevPollState ||
+                  prevPollState.gameState !== d2.gameState ||
+                  JSON.stringify(prevPollState.timer) !==
+                    JSON.stringify(d2.timer);
                 if (changed || pollCount % 5 === 0) {
                   console.info("[race] poll /api/game ->", {
                     gameState: d2.gameState,
@@ -150,11 +154,23 @@ export default function RacePage() {
                   prevPollState = d2;
                 }
                 // If we've been preparing for a while, escalate the log to warn every 10s
-                if (preparingStartedAt && Date.now() - preparingStartedAt > 10000 && pollCount % 10 === 0) {
-                  console.warn("[race] still preparing after >10s, last server timer:", d2.timer, "instanceId:", d2.instanceId);
+                if (
+                  preparingStartedAt &&
+                  Date.now() - preparingStartedAt > 10000 &&
+                  pollCount % 10 === 0
+                ) {
+                  console.warn(
+                    "[race] still preparing after >10s, last server timer:",
+                    d2.timer,
+                    "instanceId:",
+                    d2.instanceId
+                  );
                 }
               } catch (e) {}
-              if (d2.gameState === "racing" || (d2.timer && d2.timer.startedAt <= Date.now())) {
+              if (
+                d2.gameState === "racing" ||
+                (d2.timer && d2.timer.startedAt <= Date.now())
+              ) {
                 clearInterval(poll);
                 setPreparing(false);
                 // trigger a reload so the main loop picks up the racing state
@@ -185,7 +201,9 @@ export default function RacePage() {
         <div className="flex items-center justify-center h-screen">
           <div className="bg-white/90 p-6 rounded shadow text-center">
             <h2 className="text-xl font-semibold">Preparing match…</h2>
-            <p className="mt-2 text-sm text-gray-700">Waiting for server to initialize the race.</p>
+            <p className="mt-2 text-sm text-gray-700">
+              Waiting for server to initialize the race.
+            </p>
           </div>
         </div>
       ) : (
@@ -197,7 +215,6 @@ export default function RacePage() {
     </>
   );
 }
-
 
 function FPSCounter({
   interval = 500,
@@ -357,7 +374,10 @@ function RaceClient() {
               const r2 = await fetch("/api/game", { method: "GET" });
               if (!r2.ok) return;
               const d2 = await r2.json();
-              if (d2.gameState === "racing" || (d2.timer && d2.timer.startedAt <= Date.now())) {
+              if (
+                d2.gameState === "racing" ||
+                (d2.timer && d2.timer.startedAt <= Date.now())
+              ) {
                 clearInterval(poll);
                 setPreparing(false);
                 // trigger a reload so the main loop picks up the racing state
@@ -945,7 +965,10 @@ function RaceClient() {
                   // Raise the minimum interpolation delay to reduce extrapolation
                   // at moderate RTTs (e.g. ~120ms). This trades a bit of input
                   // responsiveness for visual smoothness.
-                  interpolationDelayRef.current = Math.min(300, Math.max(150, Math.round(rttRef.current / 2 + 40)));
+                  interpolationDelayRef.current = Math.min(
+                    300,
+                    Math.max(150, Math.round(rttRef.current / 2 + 40))
+                  );
                 } catch (e) {}
               } else {
                 console.log(
@@ -992,101 +1015,116 @@ function RaceClient() {
             // record snapshots for interpolation buffering
             try {
               for (const p of dedupedPlayers) {
-                  const arr = snapshotsRef.current.get(p.id) || [];
-                  const ts = (data.timing && data.timing.serverSendMs) ? data.timing.serverSendMs : Date.now();
-                  // ensure monotonic timestamps
-                  const lastTs = arr.length ? arr[arr.length - 1].ts : 0;
-                  const safeTs = ts <= lastTs ? lastTs + 1 : ts;
-                  // diagnostic: detect large gaps or late-arriving samples
-                  try {
-                    const prevTs = lastTs;
-                    const gap = ts - prevTs;
-                    if (prevTs && gap > 400) {
-                      pushDebug(
-                        `Large snapshot gap for ${p.id}: ${gap}ms (serverSendMs ${ts}, prev ${prevTs})`,
-                        "warn"
-                      );
-                    }
-                    if (ts < prevTs) {
-                      pushDebug(
-                        `Out-of-order snapshot ts for ${p.id}: ${ts} < ${prevTs}`,
-                        "warn"
-                      );
-                    }
-                  } catch (e) {}
-                  // small low-pass filter to reduce spike magnitude from late-arriving corrections
-                  const prev = arr.length ? arr[arr.length - 1] : null;
-                  const SMOOTH_ALPHA = 0.28; // how much new sample influences stored snapshot
-                  const sx = prev ? (prev.x * (1 - SMOOTH_ALPHA) + p.x * SMOOTH_ALPHA) : p.x;
-                  const sy = prev ? (prev.y * (1 - SMOOTH_ALPHA) + p.y * SMOOTH_ALPHA) : p.y;
-                  // compute velocity from previous stored snapshot when server doesn't provide it
-                  let vx = 0;
-                  let vy = 0;
-                  if (typeof p.vx === "number" && typeof p.vy === "number") {
-                    vx = p.vx;
-                    vy = p.vy;
-                  } else if (prev) {
-                    const dtMs = Math.max(1, safeTs - prev.ts);
-                    const dt = dtMs / 1000;
-                    // raw instantaneous velocity
-                    let rawVx = (sx - prev.x) / dt;
-                    let rawVy = (sy - prev.y) / dt;
-                    // clamp absurd velocities before smoothing
-                    const MAX_V = 200; // units/sec
-                    if (!Number.isFinite(rawVx) || Math.abs(rawVx) > MAX_V) rawVx = Math.sign(rawVx) * MAX_V;
-                    if (!Number.isFinite(rawVy) || Math.abs(rawVy) > MAX_V) rawVy = Math.sign(rawVy) * MAX_V;
-                    // smooth velocity using previous stored vx/vy to reduce jitter in tangents
-                    const V_SMOOTH_ALPHA = 0.45; // how much new velocity influences stored velocity
-                    const prevVx = typeof prev.vx === 'number' ? prev.vx : rawVx;
-                    const prevVy = typeof prev.vy === 'number' ? prev.vy : rawVy;
-                    vx = prevVx * (1 - V_SMOOTH_ALPHA) + rawVx * V_SMOOTH_ALPHA;
-                    vy = prevVy * (1 - V_SMOOTH_ALPHA) + rawVy * V_SMOOTH_ALPHA;
+                const arr = snapshotsRef.current.get(p.id) || [];
+                const ts =
+                  data.timing && data.timing.serverSendMs
+                    ? data.timing.serverSendMs
+                    : Date.now();
+                // ensure monotonic timestamps
+                const lastTs = arr.length ? arr[arr.length - 1].ts : 0;
+                const safeTs = ts <= lastTs ? lastTs + 1 : ts;
+                // diagnostic: detect large gaps or late-arriving samples
+                try {
+                  const prevTs = lastTs;
+                  const gap = ts - prevTs;
+                  if (prevTs && gap > 400) {
+                    pushDebug(
+                      `Large snapshot gap for ${p.id}: ${gap}ms (serverSendMs ${ts}, prev ${prevTs})`,
+                      "warn"
+                    );
                   }
+                  if (ts < prevTs) {
+                    pushDebug(
+                      `Out-of-order snapshot ts for ${p.id}: ${ts} < ${prevTs}`,
+                      "warn"
+                    );
+                  }
+                } catch (e) {}
+                // small low-pass filter to reduce spike magnitude from late-arriving corrections
+                const prev = arr.length ? arr[arr.length - 1] : null;
+                const SMOOTH_ALPHA = 0.28; // how much new sample influences stored snapshot
+                const sx = prev
+                  ? prev.x * (1 - SMOOTH_ALPHA) + p.x * SMOOTH_ALPHA
+                  : p.x;
+                const sy = prev
+                  ? prev.y * (1 - SMOOTH_ALPHA) + p.y * SMOOTH_ALPHA
+                  : p.y;
+                // compute velocity from previous stored snapshot when server doesn't provide it
+                let vx = 0;
+                let vy = 0;
+                if (typeof p.vx === "number" && typeof p.vy === "number") {
+                  vx = p.vx;
+                  vy = p.vy;
+                } else if (prev) {
+                  const dtMs = Math.max(1, safeTs - prev.ts);
+                  const dt = dtMs / 1000;
+                  // raw instantaneous velocity
+                  let rawVx = (sx - prev.x) / dt;
+                  let rawVy = (sy - prev.y) / dt;
+                  // clamp absurd velocities before smoothing
+                  const MAX_V = 200; // units/sec
+                  if (!Number.isFinite(rawVx) || Math.abs(rawVx) > MAX_V)
+                    rawVx = Math.sign(rawVx) * MAX_V;
+                  if (!Number.isFinite(rawVy) || Math.abs(rawVy) > MAX_V)
+                    rawVy = Math.sign(rawVy) * MAX_V;
+                  // smooth velocity using previous stored vx/vy to reduce jitter in tangents
+                  const V_SMOOTH_ALPHA = 0.45; // how much new velocity influences stored velocity
+                  const prevVx = typeof prev.vx === "number" ? prev.vx : rawVx;
+                  const prevVy = typeof prev.vy === "number" ? prev.vy : rawVy;
+                  vx = prevVx * (1 - V_SMOOTH_ALPHA) + rawVx * V_SMOOTH_ALPHA;
+                  vy = prevVy * (1 - V_SMOOTH_ALPHA) + rawVy * V_SMOOTH_ALPHA;
+                }
 
-                  // If there's a big time gap since the last stored snapshot,
-                  // insert a few interpolated snapshots to give the renderer
-                  // more samples to interpolate between. This helps hide
-                  // stepping when server updates are sparse or bursty.
-                  const prevTs = prev ? prev.ts : 0;
-                  const gapMs = safeTs - prevTs;
-                  const FILL_SPACING_MS = isMobile ? 40 : 60; // desired spacing for filler samples (smaller spacing -> smoother)
-                    const MAX_FILL = isMobile ? 12 : 8; // cap how many filler samples to insert
-                  if (prev && gapMs > FILL_SPACING_MS * 1.25) {
-                    // compute number of intermediate samples (exclude endpoints)
-                    const approx = Math.floor(gapMs / FILL_SPACING_MS) - 1;
-                    const fillCount = Math.max(0, Math.min(MAX_FILL, approx));
+                // If there's a big time gap since the last stored snapshot,
+                // insert a few interpolated snapshots to give the renderer
+                // more samples to interpolate between. This helps hide
+                // stepping when server updates are sparse or bursty.
+                const prevTs = prev ? prev.ts : 0;
+                const gapMs = safeTs - prevTs;
+                const FILL_SPACING_MS = isMobile ? 40 : 60; // desired spacing for filler samples (smaller spacing -> smoother)
+                const MAX_FILL = isMobile ? 12 : 8; // cap how many filler samples to insert
+                if (prev && gapMs > FILL_SPACING_MS * 1.25) {
+                  // compute number of intermediate samples (exclude endpoints)
+                  const approx = Math.floor(gapMs / FILL_SPACING_MS) - 1;
+                  const fillCount = Math.max(0, Math.min(MAX_FILL, approx));
+                  if (fillCount > 0) {
                     if (fillCount > 0) {
-                      if (fillCount > 0) {
-                        // Use Hermite interpolation to generate smoother filler samples
-                        // between `prev` and the new sample (sx,sy) using the
-                        // derived velocities. This produces smoother tangents than
-                        // simple linear lerp when snapshots are sparse.
-                        const totalMs = Math.max(1, safeTs - prevTs);
-                        const totalSec = totalMs / 1000;
-                        for (let i = 1; i <= fillCount; i++) {
-                          const its = Math.round(prevTs + (totalMs * i) / (fillCount + 1));
-                          const s = (its - prevTs) / totalMs;
-                          const s2 = s * s;
-                          const s3 = s2 * s;
-                          const h00 = 2 * s3 - 3 * s2 + 1;
-                          const h10 = s3 - 2 * s2 + s;
-                          const h01 = -2 * s3 + 3 * s2;
-                          const h11 = s3 - s2;
+                      // Use Hermite interpolation to generate smoother filler samples
+                      // between `prev` and the new sample (sx,sy) using the
+                      // derived velocities. This produces smoother tangents than
+                      // simple linear lerp when snapshots are sparse.
+                      const totalMs = Math.max(1, safeTs - prevTs);
+                      const totalSec = totalMs / 1000;
+                      for (let i = 1; i <= fillCount; i++) {
+                        const its = Math.round(
+                          prevTs + (totalMs * i) / (fillCount + 1)
+                        );
+                        const s = (its - prevTs) / totalMs;
+                        const s2 = s * s;
+                        const s3 = s2 * s;
+                        const h00 = 2 * s3 - 3 * s2 + 1;
+                        const h10 = s3 - 2 * s2 + s;
+                        const h01 = -2 * s3 + 3 * s2;
+                        const h11 = s3 - s2;
 
-                          const pvx = typeof prev.vx === 'number' ? prev.vx : vx;
-                          const pvy = typeof prev.vy === 'number' ? prev.vy : vy;
-                          const bvx = vx; // use current derived vx/vy for b
-                          const bvy = vy;
-                          const tangentScale = 0.6;
-                          const m0x = pvx * totalSec * tangentScale;
-                          const m1x = bvx * totalSec * tangentScale;
-                          const m0y = pvy * totalSec * tangentScale;
-                          const m1y = bvy * totalSec * tangentScale;
+                        const pvx = typeof prev.vx === "number" ? prev.vx : vx;
+                        const pvy = typeof prev.vy === "number" ? prev.vy : vy;
+                        const bvx = vx; // use current derived vx/vy for b
+                        const bvy = vy;
+                        const tangentScale = 0.6;
+                        const m0x = pvx * totalSec * tangentScale;
+                        const m1x = bvx * totalSec * tangentScale;
+                        const m0y = pvy * totalSec * tangentScale;
+                        const m1y = bvy * totalSec * tangentScale;
 
-                          const ix = h00 * prev.x + h10 * m0x + h01 * sx + h11 * m1x;
-                          const iy = h00 * prev.y + h10 * m0y + h01 * sy + h11 * m1y;
-                          const iz = h00 * (prev.z || 0.3) + h01 * (p.z ?? 0.3);
-                          const ia = typeof prev.angle === "number" && typeof p.angle === "number"
+                        const ix =
+                          h00 * prev.x + h10 * m0x + h01 * sx + h11 * m1x;
+                        const iy =
+                          h00 * prev.y + h10 * m0y + h01 * sy + h11 * m1y;
+                        const iz = h00 * (prev.z || 0.3) + h01 * (p.z ?? 0.3);
+                        const ia =
+                          typeof prev.angle === "number" &&
+                          typeof p.angle === "number"
                             ? (() => {
                                 let d = (p.angle || 0) - (prev.angle || 0);
                                 if (d > Math.PI) d -= Math.PI * 2;
@@ -1094,40 +1132,56 @@ function RaceClient() {
                                 return (prev.angle || 0) + d * s;
                               })()
                             : p.angle;
-                          arr.push({ ts: its, x: ix, y: iy, z: iz, angle: ia, vx: (ix - prev.x) / ((its - prevTs) / 1000 || 1), vy: (iy - prev.y) / ((its - prevTs) / 1000 || 1) });
-                        }
-                        // record telemetry
-                        try {
-                          const gd = (window as any).__GAME_DIAGS = (window as any).__GAME_DIAGS || {};
-                          gd.fillers = (gd.fillers || 0) + fillCount;
-                          gd.fillEvents = (gd.fillEvents || 0) + 1;
-                          gd.gapCount = (gd.gapCount || 0) + 1;
-                          gd.gapSum = (gd.gapSum || 0) + gapMs;
-                          if ((window as any).__GAME_DEBUG__) {
-                            console.info("interp: inserted", fillCount, "fillers for", p.id, "gapMs", gapMs);
-                          }
-                        } catch (e) {}
+                        arr.push({
+                          ts: its,
+                          x: ix,
+                          y: iy,
+                          z: iz,
+                          angle: ia,
+                          vx: (ix - prev.x) / ((its - prevTs) / 1000 || 1),
+                          vy: (iy - prev.y) / ((its - prevTs) / 1000 || 1),
+                        });
                       }
+                      // record telemetry
+                      try {
+                        const gd = ((window as any).__GAME_DIAGS =
+                          (window as any).__GAME_DIAGS || {});
+                        gd.fillers = (gd.fillers || 0) + fillCount;
+                        gd.fillEvents = (gd.fillEvents || 0) + 1;
+                        gd.gapCount = (gd.gapCount || 0) + 1;
+                        gd.gapSum = (gd.gapSum || 0) + gapMs;
+                        if ((window as any).__GAME_DEBUG__) {
+                          console.info(
+                            "interp: inserted",
+                            fillCount,
+                            "fillers for",
+                            p.id,
+                            "gapMs",
+                            gapMs
+                          );
+                        }
+                      } catch (e) {}
                     }
                   }
+                }
 
-                  // finally push the reported (smoothed) sample
-                  arr.push({
-                    ts: safeTs,
-                    x: sx,
-                    y: sy,
-                    z: p.z ?? 0.3,
-                    angle: p.angle,
-                    vx,
-                    vy,
-                  });
+                // finally push the reported (smoothed) sample
+                arr.push({
+                  ts: safeTs,
+                  x: sx,
+                  y: sy,
+                  z: p.z ?? 0.3,
+                  angle: p.angle,
+                  vx,
+                  vy,
+                });
                 // keep only last ~40 snapshots per player (enough for buffering)
                 if (arr.length > 40) arr.splice(0, arr.length - 40);
                 snapshotsRef.current.set(p.id, arr);
               }
             } catch (e) {}
-                setCars(dedupedPlayers);
-                // (Debug instrumentation removed) setCars already updated above.
+            setCars(dedupedPlayers);
+            // (Debug instrumentation removed) setCars already updated above.
             setServerFps(data.serverFps || 0);
             // Compare destructibles for changes (destroyed state & debris counts)
             try {
@@ -1342,13 +1396,16 @@ function RaceClient() {
   const isPreStart = preStartRemainingMs > 0;
   const countdownRemainingMs = isPreStart
     ? preStartRemainingMs
-    : gameState === "racing" && elapsedMs !== null && elapsedMs < COUNTDOWN_DURATION_MS
+    : gameState === "racing" &&
+      elapsedMs !== null &&
+      elapsedMs < COUNTDOWN_DURATION_MS
     ? COUNTDOWN_DURATION_MS - elapsedMs
     : 0;
 
   const showCountdown = countdownRemainingMs > 0;
 
-  const showGoSignal = !isPreStart &&
+  const showGoSignal =
+    !isPreStart &&
     gameState === "racing" &&
     elapsedMs !== null &&
     elapsedMs >= COUNTDOWN_DURATION_MS &&
@@ -1693,7 +1750,10 @@ function RaceClient() {
             // force context loss then dispose renderer
             try {
               const ctx = (gl as any).getContext && (gl as any).getContext();
-              const alreadyLost = ctx && typeof ctx.isContextLost === "function" && ctx.isContextLost();
+              const alreadyLost =
+                ctx &&
+                typeof ctx.isContextLost === "function" &&
+                ctx.isContextLost();
               if (!alreadyLost && typeof gl.forceContextLoss === "function") {
                 gl.forceContextLoss();
               }
@@ -2118,7 +2178,11 @@ function RaceClient() {
                   const measuredH = canvasEl?.clientHeight || canvasSize.h || 0;
                   if (measuredW > 0 && measuredH > 0) {
                     try {
-                      gl.setSize(Math.max(1, measuredW), Math.max(1, measuredH), true);
+                      gl.setSize(
+                        Math.max(1, measuredW),
+                        Math.max(1, measuredH),
+                        true
+                      );
                     } catch (e) {
                       console.warn("[Game] gl.setSize failed:", e);
                     }
@@ -2139,7 +2203,9 @@ function RaceClient() {
                   (gl as any).shadowMap.type = (THREE as any).PCFSoftShadowMap;
                   (gl as any).physicallyCorrectLights = true;
                   (gl as any).outputEncoding = (THREE as any).sRGBEncoding;
-                  (gl as any).toneMapping = (THREE as any).ACESFilmicToneMapping;
+                  (gl as any).toneMapping = (
+                    THREE as any
+                  ).ACESFilmicToneMapping;
                   (gl as any).toneMappingExposure = 0.9;
                 } catch (e) {
                   // non-fatal renderer property set failure

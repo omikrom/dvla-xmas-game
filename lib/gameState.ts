@@ -362,7 +362,9 @@ export async function adoptMatchFromToken(token?: string | null) {
             );
             if (claimed) {
               amOwner = true;
-              logInfo(`[GameState] re-claimed canonical token as owner (${INSTANCE_ID})`);
+              logInfo(
+                `[GameState] re-claimed canonical token as owner (${INSTANCE_ID})`
+              );
             }
           } catch (e) {
             // ignore claim errors and continue to try loading a snapshot
@@ -415,7 +417,11 @@ export async function adoptMatchFromToken(token?: string | null) {
                 ).toISOString()}`
               );
               try {
-                logInfo(`[GameState] adoptMatchFromToken: loaded authoritative snapshot (non-owner) start=${new Date(payload.startedAt).toISOString()} instance=${INSTANCE_ID}`);
+                logInfo(
+                  `[GameState] adoptMatchFromToken: loaded authoritative snapshot (non-owner) start=${new Date(
+                    payload.startedAt
+                  ).toISOString()} instance=${INSTANCE_ID}`
+                );
               } catch (e) {}
               return true;
             } catch (e) {
@@ -449,13 +455,23 @@ export async function adoptMatchFromToken(token?: string | null) {
               try {
                 updatePhysics();
               } catch (err) {
-                console.error("[GameState] periodicPhysics interval error:", err);
+                console.error(
+                  "[GameState] periodicPhysics interval error:",
+                  err
+                );
               }
-            }, SERVER_PERIODIC_PHYSICS_MS) as unknown as ReturnType<typeof setInterval>;
-            logInfo(`[GameState] periodic physics tick started (${SERVER_PERIODIC_PHYSICS_MS}ms) (adopt)`);
+            }, SERVER_PERIODIC_PHYSICS_MS) as unknown as ReturnType<
+              typeof setInterval
+            >;
+            logInfo(
+              `[GameState] periodic physics tick started (${SERVER_PERIODIC_PHYSICS_MS}ms) (adopt)`
+            );
           }
         } catch (e) {
-          console.warn("[GameState] failed to start periodic physics tick (adopt):", e);
+          console.warn(
+            "[GameState] failed to start periodic physics tick (adopt):",
+            e
+          );
         }
         // If this worker is the owner, start periodic snapshot persistence
         try {
@@ -476,28 +492,47 @@ export async function adoptMatchFromToken(token?: string | null) {
                   const tk = (room as any).currentMatchToken;
                   if (tk) {
                     try {
-                            saveMatchSnapshot(tk, snapshot, room.matchDurationMs).catch((err: any) =>
-                              console.warn("[GameState] saveMatchSnapshot failed:", err)
-                            );
-                            // Refresh owner TTL so other workers can detect owner liveness
-                            try {
-                              refreshMatchOwner(INSTANCE_ID, room.matchDurationMs).catch((err: any) =>
-                                console.warn("[GameState] refreshMatchOwner failed:", err)
-                              );
-                            } catch (e) {}
+                      saveMatchSnapshot(
+                        tk,
+                        snapshot,
+                        room.matchDurationMs
+                      ).catch((err: any) =>
+                        console.warn(
+                          "[GameState] saveMatchSnapshot failed:",
+                          err
+                        )
+                      );
+                      // Refresh owner TTL so other workers can detect owner liveness
+                      try {
+                        refreshMatchOwner(
+                          INSTANCE_ID,
+                          room.matchDurationMs
+                        ).catch((err: any) =>
+                          console.warn(
+                            "[GameState] refreshMatchOwner failed:",
+                            err
+                          )
+                        );
+                      } catch (e) {}
                     } catch (err) {
                       console.warn("[GameState] saveMatchSnapshot threw:", err);
                     }
                   }
                 } catch (err) {
-                  console.warn("[GameState] periodic snapshot saver error:", err);
+                  console.warn(
+                    "[GameState] periodic snapshot saver error:",
+                    err
+                  );
                 }
               }, 200) as unknown as ReturnType<typeof setInterval>;
               logInfo("[GameState] periodic snapshot saver started (owner)");
             }
           }
         } catch (e) {
-          console.warn("[GameState] failed to start periodic snapshot saver:", e);
+          console.warn(
+            "[GameState] failed to start periodic snapshot saver:",
+            e
+          );
         }
         // Clear any previously scheduled finalize and schedule a new one
         try {
@@ -531,7 +566,11 @@ export async function adoptMatchFromToken(token?: string | null) {
         ).toISOString()}`
       );
       try {
-        logInfo(`[GameState] adoptMatchFromToken: initialized local race state (owner=${amOwner}) start=${new Date(payload.startedAt).toISOString()} instance=${INSTANCE_ID}`);
+        logInfo(
+          `[GameState] adoptMatchFromToken: initialized local race state (owner=${amOwner}) start=${new Date(
+            payload.startedAt
+          ).toISOString()} instance=${INSTANCE_ID}`
+        );
       } catch (e) {}
     }
     return true;
@@ -1463,8 +1502,12 @@ export function startRace() {
         } catch (err) {
           console.error("[GameState] periodicPhysics interval error:", err);
         }
-      }, SERVER_PERIODIC_PHYSICS_MS) as unknown as ReturnType<typeof setInterval>;
-      logInfo(`[GameState] periodic physics tick started (${SERVER_PERIODIC_PHYSICS_MS}ms)`);
+      }, SERVER_PERIODIC_PHYSICS_MS) as unknown as ReturnType<
+        typeof setInterval
+      >;
+      logInfo(
+        `[GameState] periodic physics tick started (${SERVER_PERIODIC_PHYSICS_MS}ms)`
+      );
     }
   } catch (e) {
     console.warn("[GameState] failed to start periodic physics tick", e);
@@ -1583,8 +1626,14 @@ export function getTimerState() {
 export function ensureFinalizeIfDue() {
   try {
     const now = Date.now();
-    if (room.gameState === "racing" && room.raceEndTime && now >= room.raceEndTime) {
-      console.log("[GameState] ensureFinalizeIfDue: timer expired, finalizing now");
+    if (
+      room.gameState === "racing" &&
+      room.raceEndTime &&
+      now >= room.raceEndTime
+    ) {
+      console.log(
+        "[GameState] ensureFinalizeIfDue: timer expired, finalizing now"
+      );
       try {
         finalizeRace();
       } catch (e) {

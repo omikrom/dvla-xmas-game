@@ -32,14 +32,18 @@ export default function InterpolatedCar({
   positionsRef: React.MutableRefObject<Map<string, { x: number; y: number }>>;
   snapshotsRef: React.MutableRefObject<Map<string, Snapshot[]>>;
   localPlayerId?: string | null;
-  playerInputRef?: React.MutableRefObject<{ steer: number; throttle: number } | null>;
+  playerInputRef?: React.MutableRefObject<{
+    steer: number;
+    throttle: number;
+  } | null>;
   trailColor?: string;
   interpolationDelayRef?: React.MutableRefObject<number>;
   isMobile?: boolean;
 }) {
   const groupRef = useRef<THREE.Group | null>(null);
   const LOCAL_DEBUG =
-    typeof window !== "undefined" && (!!(window as any).__GAME_DEBUG__ || process.env.NODE_ENV !== "production");
+    typeof window !== "undefined" &&
+    (!!(window as any).__GAME_DEBUG__ || process.env.NODE_ENV !== "production");
   const correctionRef = useRef<{
     active: boolean;
     start: number;
@@ -77,10 +81,17 @@ export default function InterpolatedCar({
     // to smooth jitter. The client keeps a short buffer of snapshots and
     // renders the state at `now - INTERPOLATION_DELAY_MS`.
     // allow runtime overrides from the InterpTuner (window.__GAME_TUNER)
-    const tuner = typeof window !== "undefined" ? (window as any).__GAME_TUNER || {} : {};
+    const tuner =
+      typeof window !== "undefined" ? (window as any).__GAME_TUNER || {} : {};
     const defaultDelay = 285;
-    const delayFromRef = interpolationDelayRef && typeof interpolationDelayRef.current === "number" ? interpolationDelayRef.current : defaultDelay;
-    const delay = typeof tuner.interpolationDelay === "number" ? tuner.interpolationDelay : delayFromRef;
+    const delayFromRef =
+      interpolationDelayRef && typeof interpolationDelayRef.current === "number"
+        ? interpolationDelayRef.current
+        : defaultDelay;
+    const delay =
+      typeof tuner.interpolationDelay === "number"
+        ? tuner.interpolationDelay
+        : delayFromRef;
     const now = Date.now();
     const targetTime = now - delay;
 
@@ -134,7 +145,10 @@ export default function InterpolatedCar({
         const h11 = s3 - s2;
 
         const defaultTangent = isMobile ? 0.45 : 0.6;
-        const tangentScale = typeof tuner.tangentScale === "number" ? tuner.tangentScale : defaultTangent;
+        const tangentScale =
+          typeof tuner.tangentScale === "number"
+            ? tuner.tangentScale
+            : defaultTangent;
         const m0x = (a.vx || 0) * totalSec * tangentScale;
         const m1x = (b.vx || 0) * totalSec * tangentScale;
         const m0y = (a.vy || 0) * totalSec * tangentScale;
@@ -142,7 +156,11 @@ export default function InterpolatedCar({
 
         sampledX = h00 * a.x + h10 * m0x + h01 * b.x + h11 * m1x;
         sampledY = h00 * a.y + h10 * m0y + h01 * b.y + h11 * m1y;
-        sampledZ = h00 * (a.z || 0.3) + h10 * ((a.z || 0.3) * totalSec) + h01 * (b.z || 0.3) + h11 * ((b.z || 0.3) * totalSec);
+        sampledZ =
+          h00 * (a.z || 0.3) +
+          h10 * ((a.z || 0.3) * totalSec) +
+          h01 * (b.z || 0.3) +
+          h11 * ((b.z || 0.3) * totalSec);
 
         if (typeof a.angle === "number" && typeof b.angle === "number") {
           // shortest-angle lerp for rotation (keep simple linear blend)
@@ -178,8 +196,12 @@ export default function InterpolatedCar({
       try {
         const inp = playerInputRef.current;
         // prediction parameters may be overridden by tuner
-        const MAX_PRED_SPEED = typeof tuner.predSpeed === "number" ? tuner.predSpeed : 6; // units/sec
-        const predDt = typeof tuner.predDt === "number" ? Math.max(0.01, tuner.predDt / 1000) : 0.125; // ms->s (default 125ms)
+        const MAX_PRED_SPEED =
+          typeof tuner.predSpeed === "number" ? tuner.predSpeed : 6; // units/sec
+        const predDt =
+          typeof tuner.predDt === "number"
+            ? Math.max(0.01, tuner.predDt / 1000)
+            : 0.125; // ms->s (default 125ms)
         const forward = (inp.throttle || 0) * MAX_PRED_SPEED * predDt;
         const steerEffect = (inp.steer || 0) * 0.25 * predDt; // smaller angular effect
         sampledX += Math.sin(sampledAngle) * forward;
@@ -198,36 +220,53 @@ export default function InterpolatedCar({
     const dz = sampledY - groupRef.current.position.z;
     const distSq = dx * dx + dz * dz;
     const dist = Math.sqrt(distSq);
-    const TELEPORT_THRESHOLD = typeof tuner.teleportThreshold === "number" ? tuner.teleportThreshold : 25;
-    const CORRECT_THRESHOLD = typeof tuner.correctThreshold === "number" ? tuner.correctThreshold : 15;
-    const CORRECTION_MS = typeof tuner.correctionMs === "number" ? tuner.correctionMs : 83;
+    const TELEPORT_THRESHOLD =
+      typeof tuner.teleportThreshold === "number"
+        ? tuner.teleportThreshold
+        : 25;
+    const CORRECT_THRESHOLD =
+      typeof tuner.correctThreshold === "number" ? tuner.correctThreshold : 15;
+    const CORRECTION_MS =
+      typeof tuner.correctionMs === "number" ? tuner.correctionMs : 83;
 
     // update target rotation early
     targetRot.current = sampledAngle;
 
     if (dist > TELEPORT_THRESHOLD) {
       // Very large jump — teleport to authoritative position
-      if (groupRef.current.position.x !== sampledX || groupRef.current.position.z !== sampledY) {
+      if (
+        groupRef.current.position.x !== sampledX ||
+        groupRef.current.position.z !== sampledY
+      ) {
         if (LOCAL_DEBUG) {
           try {
-            const lastSnaps = snaps.slice(Math.max(0, snaps.length - 4)).map(s => ({ ts: s.ts, x: s.x, y: s.y, vx: s.vx, vy: s.vy }));
+            const lastSnaps = snaps
+              .slice(Math.max(0, snaps.length - 4))
+              .map((s) => ({ ts: s.ts, x: s.x, y: s.y, vx: s.vx, vy: s.vy }));
             console.info("[interp] teleport", {
               id: car.id,
               dist: Math.round(dist),
-              from: { x: groupRef.current.position.x, z: groupRef.current.position.z },
+              from: {
+                x: groupRef.current.position.x,
+                z: groupRef.current.position.z,
+              },
               to: { x: sampledX, z: sampledY },
               targetTime,
               bufferLen: snaps.length,
               lastSnaps,
             });
           } catch (e) {
-            console.info("[interp] teleport", { id: car.id, dist: Math.round(dist) });
+            console.info("[interp] teleport", {
+              id: car.id,
+              dist: Math.round(dist),
+            });
           }
         }
         groupRef.current.position.set(sampledX, sampledZ, sampledY);
         correctionRef.current = null;
         try {
-          const gd = (window as any).__GAME_DIAGS = (window as any).__GAME_DIAGS || {};
+          const gd = ((window as any).__GAME_DIAGS =
+            (window as any).__GAME_DIAGS || {});
           gd.teleports = (gd.teleports || 0) + 1;
         } catch (e) {}
       }
@@ -237,15 +276,28 @@ export default function InterpolatedCar({
       const nowMs = Date.now();
       const existing = correctionRef.current;
       // If no active correction or the target changed significantly, start a new one
-      if (!existing || Math.hypot(existing.to.x - sampledX, existing.to.z - sampledY) > 0.5) {
+      if (
+        !existing ||
+        Math.hypot(existing.to.x - sampledX, existing.to.z - sampledY) > 0.5
+      ) {
         // For the local player, perform a softer reconciliation so input
         // responsiveness remains high. Blend towards the authoritative
         // position instead of fully jumping to it.
-        const localBlend = typeof tuner.localBlend === "number" ? tuner.localBlend : 0.5;
-        const localCorrectionMs = typeof tuner.localCorrectionMs === "number" ? tuner.localCorrectionMs : Math.min(CORRECTION_MS, 200);
+        const localBlend =
+          typeof tuner.localBlend === "number" ? tuner.localBlend : 0.5;
+        const localCorrectionMs =
+          typeof tuner.localCorrectionMs === "number"
+            ? tuner.localCorrectionMs
+            : Math.min(CORRECTION_MS, 200);
 
-        const toX = isLocal ? (groupRef.current.position.x + (sampledX - groupRef.current.position.x) * localBlend) : sampledX;
-        const toZ = isLocal ? (groupRef.current.position.z + (sampledY - groupRef.current.position.z) * localBlend) : sampledY;
+        const toX = isLocal
+          ? groupRef.current.position.x +
+            (sampledX - groupRef.current.position.x) * localBlend
+          : sampledX;
+        const toZ = isLocal
+          ? groupRef.current.position.z +
+            (sampledY - groupRef.current.position.z) * localBlend
+          : sampledY;
 
         correctionRef.current = {
           active: true,
@@ -260,7 +312,9 @@ export default function InterpolatedCar({
         };
         if (LOCAL_DEBUG) {
           try {
-            const lastSnaps = snaps.slice(Math.max(0, snaps.length - 4)).map(s => ({ ts: s.ts, x: s.x, y: s.y, vx: s.vx, vy: s.vy }));
+            const lastSnaps = snaps
+              .slice(Math.max(0, snaps.length - 4))
+              .map((s) => ({ ts: s.ts, x: s.x, y: s.y, vx: s.vx, vy: s.vy }));
             console.info("[interp] start-correction", {
               id: car.id,
               dist: Math.round(dist),
@@ -272,11 +326,15 @@ export default function InterpolatedCar({
               lastSnaps,
             });
           } catch (e) {
-            console.info("[interp] start-correction", { id: car.id, dist: Math.round(dist) });
+            console.info("[interp] start-correction", {
+              id: car.id,
+              dist: Math.round(dist),
+            });
           }
         }
         try {
-          const gd = (window as any).__GAME_DIAGS = (window as any).__GAME_DIAGS || {};
+          const gd = ((window as any).__GAME_DIAGS =
+            (window as any).__GAME_DIAGS || {});
           gd.corrections = (gd.corrections || 0) + 1;
         } catch (e) {}
       }
@@ -294,7 +352,10 @@ export default function InterpolatedCar({
         // Clamp per-frame movement to avoid visual teleporting/jumps. Use
         // a configured max move speed (units/sec) multiplied by `delta`.
         const defaultMaxMove = isMobile ? 18 : 30;
-        const maxMoveSpeed = typeof tuner.maxMoveSpeed === "number" ? tuner.maxMoveSpeed : defaultMaxMove; // units/sec
+        const maxMoveSpeed =
+          typeof tuner.maxMoveSpeed === "number"
+            ? tuner.maxMoveSpeed
+            : defaultMaxMove; // units/sec
         const maxMove = Math.max(0.001, maxMoveSpeed * delta);
         const curX = groupRef.current.position.x;
         const curZ = groupRef.current.position.z;
@@ -316,7 +377,8 @@ export default function InterpolatedCar({
             });
           }
           try {
-            const gd = (window as any).__GAME_DIAGS = (window as any).__GAME_DIAGS || {};
+            const gd = ((window as any).__GAME_DIAGS =
+              (window as any).__GAME_DIAGS || {});
             gd.correctionsFinished = (gd.correctionsFinished || 0) + 1;
           } catch (e) {}
           correctionRef.current = null;
@@ -336,7 +398,8 @@ export default function InterpolatedCar({
       const stepX = desiredMoveX * alpha;
       const stepZ = desiredMoveZ * alpha;
       const stepLen = Math.hypot(stepX, stepZ);
-      const maxMoveSpeed = typeof tuner.maxMoveSpeed === "number" ? tuner.maxMoveSpeed : 30; // units/sec
+      const maxMoveSpeed =
+        typeof tuner.maxMoveSpeed === "number" ? tuner.maxMoveSpeed : 30; // units/sec
       const maxMove = Math.max(0.001, maxMoveSpeed * delta);
       let finalStepX = stepX;
       let finalStepZ = stepZ;

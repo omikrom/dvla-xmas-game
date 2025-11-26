@@ -80,7 +80,9 @@ export default function AudioHeaderButton() {
         <div className="absolute right-0 mt-2 w-48 bg-black/70 p-3 rounded-md border border-white/10 backdrop-blur-sm z-50">
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm text-slate-200">Audio</div>
-            <div className="text-xs text-slate-400">{playing ? "On" : "Off"}</div>
+            <div className="text-xs text-slate-400">
+              {playing ? "On" : "Off"}
+            </div>
           </div>
           <div className="flex items-center gap-2 mb-2">
             <button
