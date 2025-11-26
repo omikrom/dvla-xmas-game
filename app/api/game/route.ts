@@ -16,6 +16,12 @@ import {
   getServerFps,
   CAR_DESTROY_THRESHOLD,
 } from "@/lib/gameState";
+import {
+  getLastRedisConnectMs,
+  getMatchSnapshot,
+  getCurrentMatchOwner,
+} from "@/lib/matchStore";
+import { getRoom } from "@/lib/gameState";
 
 const nowMs = () => Number(process.hrtime.bigint() / BigInt(1e6));
 const LOG_THRESHOLD = 1;
@@ -47,13 +53,39 @@ export async function POST(request: NextRequest) {
     // in-memory room uses the same race start/end times.
     try {
       if (body.matchToken) {
-        const ok = adoptMatchFromToken(body.matchToken);
+        const ok = await adoptMatchFromToken(body.matchToken);
         if (ok) {
           // include a quick log for diagnostics
           console.log(`[api/game] adopted match token from client`);
         }
       }
     } catch (e) {}
+
+    // If this worker is NOT the owner, try to fetch the latest authoritative
+    // snapshot (served by the owner) so read-only workers serve up-to-date state.
+    try {
+      const owner = await getCurrentMatchOwner();
+      if (owner && owner !== getInstanceId()) {
+        const snap = await getMatchSnapshot();
+        if (snap) {
+          try {
+            const r = getRoom();
+            if (Array.isArray(snap.destructibles)) {
+              // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+              // @ts-ignore
+              r.destructibles = new Map(snap.destructibles.map((d: any) => [d.id, d]));
+            }
+            r.deliveries = Array.isArray(snap.deliveries) ? snap.deliveries : [];
+            r.powerUps = Array.isArray(snap.powerUps) ? snap.powerUps : [];
+            r.leaderboard = Array.isArray(snap.leaderboard) ? snap.leaderboard : [];
+            r.events = Array.isArray(snap.events) ? snap.events : [];
+            r.lastPhysicsUpdate = Date.now();
+          } catch (err) {
+            console.warn("[api/game] failed to apply snapshot:", err);
+          }
+        }
+      }
+    } catch (err) {}
 
     // Prevent new players joining a running match unless they present the
     // canonical matchToken. This avoids multiple overlapping matches and
@@ -131,6 +163,7 @@ export async function POST(request: NextRequest) {
       serverReceiveMs,
       serverSendMs,
       processingMs: serverSendMs - serverReceiveMs,
+      redisConnectMs: getLastRedisConnectMs(),
     };
 
     return NextResponse.json({

@@ -149,6 +149,8 @@ type Room = {
   periodicRepairHandle?: ReturnType<typeof setInterval> | null;
   // periodic physics interval handle (advances physics/timers independent of client polls)
   periodicPhysicsHandle?: ReturnType<typeof setInterval> | null;
+  // periodic snapshot handle (owner writes authoritative snapshot periodically)
+  periodicSnapshotHandle?: ReturnType<typeof setInterval> | null;
   leaderboard: Array<{
     id: string;
     name: string;
@@ -243,7 +245,15 @@ import crypto from "crypto";
 
 // Optional shared token store (Vercel KV wrapper). Use for cross-instance
 // canonical match tokens when available.
-import { getCurrentMatchToken, releaseMatchToken } from "@/lib/matchStore";
+import {
+  getCurrentMatchToken,
+  releaseMatchToken,
+  getMatchSnapshot,
+  getCurrentMatchOwner,
+  saveMatchSnapshot,
+  refreshMatchOwner,
+} from "@/lib/matchStore";
+import { claimMatchToken } from "@/lib/matchStore";
 
 // For demo builds we use a stable demo secret so signed tokens validate
 // across simple local deployments. In production you should set
@@ -314,7 +324,7 @@ export function getMatchToken() {
   }
 }
 
-export function adoptMatchFromToken(token?: string | null) {
+export async function adoptMatchFromToken(token?: string | null) {
   const payload = verifyMatchToken(token || undefined);
   if (!payload) return false;
   try {
@@ -323,10 +333,7 @@ export function adoptMatchFromToken(token?: string | null) {
       !room.raceEndTime ||
       room.raceEndTime < payload.startedAt + payload.durationMs
     ) {
-      // initialize full racing state from the adopted token. This ensures
-      // that whichever worker first receives a client-provided token will
-      // properly initialize destructibles, powerups and schedule finalization
-      // so all workers can adopt the same canonical match timing.
+      // initialize timing from token
       room.raceStartTime = payload.startedAt;
       room.raceEndTime = payload.startedAt + payload.durationMs;
       room.matchDurationMs = payload.durationMs;
@@ -334,9 +341,89 @@ export function adoptMatchFromToken(token?: string | null) {
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore
       room.currentMatchToken = token;
-      // If we're not already in racing state, initialize the world similar
-      // to `startRace()` so this worker becomes the authoritative instance
-      // for the canonical match timing and world initialization.
+
+      // If another worker is the owner, attempt to load the authoritative
+      // snapshot rather than generating a randomized world locally. This
+      // prevents instance-to-instance divergence caused by Math.random.
+      let amOwner = false;
+      try {
+        const owner = await Promise.resolve(getCurrentMatchOwner());
+        amOwner = !!owner && owner === INSTANCE_ID;
+        // If no owner is reported, try to claim the canonical token so this
+        // worker can become the owner (handles owner TTL expiry / crash).
+        if (!amOwner && !owner) {
+          try {
+            const claimed = await Promise.resolve(
+              claimMatchToken(token as string, payload.durationMs, INSTANCE_ID)
+            );
+            if (claimed) {
+              amOwner = true;
+              logInfo(`[GameState] re-claimed canonical token as owner (${INSTANCE_ID})`);
+            }
+          } catch (e) {
+            // ignore claim errors and continue to try loading a snapshot
+            console.warn("[GameState] claimMatchToken during adopt failed:", e);
+          }
+        }
+        if (!amOwner) {
+          // Try to fetch the authoritative snapshot. If it's not yet available
+          // (race between owner adopting and saving initial snapshot), poll
+          // briefly for a snapshot to appear before falling back to local init.
+          let snap: any = await Promise.resolve(getMatchSnapshot());
+          const maxWaitMs = 500;
+          const pollInterval = 120;
+          let waited = 0;
+          while (!snap && waited < maxWaitMs) {
+            await new Promise((res) => setTimeout(res, pollInterval));
+            waited += pollInterval;
+            try {
+              snap = await Promise.resolve(getMatchSnapshot());
+            } catch (e) {
+              snap = null;
+            }
+          }
+          if (snap) {
+            // Apply snapshot into room state (read-only worker)
+            try {
+              room.gameState = "racing";
+              // destructibles saved as array
+              if (Array.isArray(snap.destructibles)) {
+                room.destructibles = new Map(
+                  snap.destructibles.map((d: any) => [d.id, d])
+                );
+              }
+              room.deliveries = Array.isArray(snap.deliveries)
+                ? snap.deliveries
+                : [];
+              room.powerUps = Array.isArray(snap.powerUps) ? snap.powerUps : [];
+              room.leaderboard = Array.isArray(snap.leaderboard)
+                ? snap.leaderboard
+                : [];
+              room.events = Array.isArray(snap.events) ? snap.events : [];
+              room.lastPhysicsUpdate = Date.now();
+
+              // Non-owner: DO NOT start authoritative physics or finalize timer.
+              // This worker will serve read-only snapshots fetched from the owner.
+
+              recordSystemEvent(
+                `Adopted match token (loaded snapshot): start=${new Date(
+                  payload.startedAt
+                ).toISOString()}`
+              );
+              return true;
+            } catch (e) {
+              console.warn("Failed to apply match snapshot:", e);
+            }
+          }
+        }
+      } catch (e) {
+        // ignore snapshot loading errors and fall back to local init
+        console.warn("Error checking match owner / snapshot during adopt:", e);
+      }
+
+      // If we get here it means either we're the owner or snapshot wasn't
+      // available — fall back to local deterministic initialization similar
+      // to `startRace()` so this worker becomes authoritative for the token.
       if (room.gameState !== "racing") {
         room.gameState = "racing";
         room.destructibles = createInitialDestructibles();
@@ -362,6 +449,48 @@ export function adoptMatchFromToken(token?: string | null) {
           }
         } catch (e) {
           console.warn("[GameState] failed to start periodic physics tick (adopt):", e);
+        }
+        // If this worker is the owner, start periodic snapshot persistence
+        try {
+          if (amOwner) {
+            if (!room.periodicSnapshotHandle) {
+              room.periodicSnapshotHandle = setInterval(() => {
+                try {
+                  const r = getRoom();
+                  const snapshot = {
+                    destructibles: Array.from(r.destructibles.values()),
+                    deliveries: r.deliveries,
+                    powerUps: r.powerUps,
+                    leaderboard: r.leaderboard,
+                    events: r.events,
+                  };
+                  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                  // @ts-ignore
+                  const tk = (room as any).currentMatchToken;
+                  if (tk) {
+                    try {
+                            saveMatchSnapshot(tk, snapshot, room.matchDurationMs).catch((err: any) =>
+                              console.warn("[GameState] saveMatchSnapshot failed:", err)
+                            );
+                            // Refresh owner TTL so other workers can detect owner liveness
+                            try {
+                              refreshMatchOwner(INSTANCE_ID, room.matchDurationMs).catch((err: any) =>
+                                console.warn("[GameState] refreshMatchOwner failed:", err)
+                              );
+                            } catch (e) {}
+                    } catch (err) {
+                      console.warn("[GameState] saveMatchSnapshot threw:", err);
+                    }
+                  }
+                } catch (err) {
+                  console.warn("[GameState] periodic snapshot saver error:", err);
+                }
+              }, 200) as unknown as ReturnType<typeof setInterval>;
+              logInfo("[GameState] periodic snapshot saver started (owner)");
+            }
+          }
+        } catch (e) {
+          console.warn("[GameState] failed to start periodic snapshot saver:", e);
         }
         // Clear any previously scheduled finalize and schedule a new one
         try {
@@ -768,6 +897,7 @@ const room: Room = {
   destructibles: createInitialDestructibles(),
   matchDurationMs: MATCH_DURATION_MS,
   periodicPhysicsHandle: null,
+  periodicSnapshotHandle: null,
   leaderboard: [],
   deliveries: createInitialDeliveries(),
   powerUps: [],
@@ -1399,6 +1529,15 @@ function finalizeRace() {
       clearInterval(room.periodicPhysicsHandle as any);
       room.periodicPhysicsHandle = null;
       logInfo("[GameState] periodic physics tick stopped (finalize)");
+    }
+  } catch (e) {}
+
+  // Stop periodic snapshot saver (owner) when match finishes
+  try {
+    if (room.periodicSnapshotHandle) {
+      clearInterval(room.periodicSnapshotHandle as any);
+      room.periodicSnapshotHandle = null;
+      logInfo("[GameState] periodic snapshot saver stopped (finalize)");
     }
   } catch (e) {}
 

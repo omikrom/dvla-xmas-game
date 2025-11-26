@@ -984,6 +984,11 @@ function RaceClient() {
 
             // reset backoff on success
             backoff = 0;
+            // Ensure we don't poll faster than the owner's snapshot cadence
+            // (owner saves every ~200ms). Use a conservative lower bound so
+            // remote clients don't request updates more frequently than
+            // the server will produce them.
+            nextDelay = Math.max(nextDelay, 150);
             // sleep until next iteration
             if (!mounted) break;
             await sleep(nextDelay);

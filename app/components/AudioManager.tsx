@@ -40,6 +40,7 @@ export default function AudioManager() {
   const mountedRef = useRef(false);
   const isFadingRef = useRef(false);
   const [requiresUserGesture, setRequiresUserGesture] = useState(false);
+  const lastVolumeRef = useRef<number>(0.7);
 
   // Define playlists (public folder)
   const lobbyPlaylist = [
@@ -99,8 +100,10 @@ export default function AudioManager() {
         return;
       }
 
-      // fade in
-      await fadeVolume(audio, 0, 0.7, 1000).catch(() => {});
+      // fade in to the last known master volume
+      const targetVol = Math.max(0, Math.min(1, lastVolumeRef.current || 0.7));
+      await fadeVolume(audio, 0, targetVol, 1000).catch(() => {});
+      lastVolumeRef.current = targetVol;
 
       // notify UI that audio is now playing
       try {
@@ -120,12 +123,14 @@ export default function AudioManager() {
         // fade out current and fade in next
         const old = currentAudioRef.current;
         currentAudioRef.current = nextAudio;
+        const target = Math.max(0, Math.min(1, lastVolumeRef.current || 0.7));
         await Promise.all([
-          fadeVolume(nextAudio, 0, 0.7, 900).catch(() => {}),
+          fadeVolume(nextAudio, 0, target, 900).catch(() => {}),
           old
             ? fadeVolume(old, old.volume, 0, 900).catch(() => {})
             : Promise.resolve(),
         ]).catch(() => {});
+        lastVolumeRef.current = target;
         try {
           old && old.pause();
         } catch (e) {}
@@ -198,8 +203,9 @@ export default function AudioManager() {
         following.play().catch(() => {});
         const prev = currentAudioRef.current;
         currentAudioRef.current = following;
+        const target = Math.max(0, Math.min(1, lastVolumeRef.current || 0.7));
         await Promise.all([
-          fadeVolume(following, 0, 0.7, 900).catch(() => {}),
+          fadeVolume(following, 0, target, 900).catch(() => {}),
           prev
             ? fadeVolume(prev, prev.volume, 0, 900).catch(() => {})
             : Promise.resolve(),
@@ -210,12 +216,14 @@ export default function AudioManager() {
         following.onended = nextAudio.onended;
       };
       // perform crossfade
-      await Promise.all([
-        fadeVolume(nextAudio, 0, 0.7, 900).catch(() => {}),
-        old
-          ? fadeVolume(old, old.volume, 0, 900).catch(() => {})
-          : Promise.resolve(),
-      ]).catch(() => {});
+        const target = Math.max(0, Math.min(1, lastVolumeRef.current || 0.7));
+        await Promise.all([
+          fadeVolume(nextAudio, 0, target, 900).catch(() => {}),
+          old
+            ? fadeVolume(old, old.volume, 0, 900).catch(() => {})
+            : Promise.resolve(),
+        ]).catch(() => {});
+        lastVolumeRef.current = target;
       try {
         old && old.pause();
       } catch (e) {}
@@ -227,7 +235,17 @@ export default function AudioManager() {
         const target = Math.max(0, Math.min(1, Number(detail.volume) || 0));
         const fadeMs = typeof detail.fadeMs === "number" ? detail.fadeMs : 0;
         const cur = currentAudioRef.current;
-        if (!cur) return;
+        if (!cur) {
+          // no active audio — store master volume for next track
+          lastVolumeRef.current = target;
+          // notify UI
+          try {
+            window.dispatchEvent(
+              new CustomEvent("audio:volume", { detail: { volume: target } })
+            );
+          } catch (e) {}
+          return;
+        }
         if (fadeMs && fadeMs > 0) {
           await fadeVolume(cur, cur.volume || 0, target, fadeMs).catch(
             () => {}
@@ -235,6 +253,7 @@ export default function AudioManager() {
         } else {
           cur.volume = target;
         }
+        lastVolumeRef.current = cur.volume;
         // notify UI
         try {
           window.dispatchEvent(
@@ -289,7 +308,8 @@ export default function AudioManager() {
           console.log("AudioManager: enableAudio() invoked — attempting play");
         await cur.play();
         setRequiresUserGesture(false);
-        await fadeVolume(cur, cur.volume || 0, 0.7, 800).catch(() => {});
+        const target = Math.max(0, Math.min(1, lastVolumeRef.current || 0.7));
+        await fadeVolume(cur, cur.volume || 0, target, 800).catch(() => {});
         return;
       } catch (err) {
         console.warn("EnableAudio: play() failed", err);

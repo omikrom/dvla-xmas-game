@@ -13,7 +13,9 @@ import {
   claimMatchToken,
   getCurrentMatchToken,
   releaseMatchToken,
+  saveMatchSnapshot,
 } from "@/lib/matchStore";
+import { getInstanceId } from "@/lib/gameState";
 
 export async function POST(request: NextRequest) {
   try {
@@ -66,7 +68,8 @@ export async function POST(request: NextRequest) {
       // If claim succeeds, adopt it locally and return it. Otherwise read the
       // existing canonical token and return that instead.
       try {
-        const claimed = await claimMatchToken(token, MATCH_DURATION_MS);
+        const iid = getInstanceId();
+        const claimed = await claimMatchToken(token, MATCH_DURATION_MS, iid);
         // Diagnostic log: show which worker claimed/failed to claim
         try {
           // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -80,12 +83,25 @@ export async function POST(request: NextRequest) {
         if (claimed) {
           matchToken = token;
           try {
-            adoptMatchFromToken(matchToken);
+            await adoptMatchFromToken(matchToken);
             try {
-              // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-              // @ts-ignore
-              const iid = require("@/lib/gameState").getInstanceId();
               console.log(`[lobby][${iid}] adopted token locally`);
+            } catch (e) {}
+            // Save the initial authoritative snapshot so other workers can load it
+            try {
+              const r = getRoomState();
+              const snapshot = {
+                destructibles: r ? (require("@/lib/gameState").getDestructibleState() || []) : [],
+                deliveries: r ? (require("@/lib/gameState").getDeliveries() || []) : [],
+                powerUps: r ? (require("@/lib/gameState").getPowerUps() || []) : [],
+                leaderboard: r ? (require("@/lib/gameState").getLeaderboard() || []) : [],
+                events: r ? (require("@/lib/gameState").getMatchEvents() || []) : [],
+              };
+              try {
+                await saveMatchSnapshot(matchToken, snapshot, MATCH_DURATION_MS);
+              } catch (e) {
+                console.warn("Failed to save match snapshot:", e);
+              }
             } catch (e) {}
           } catch (e) {
             console.warn("Failed to adopt match token on lobby worker:", e);
@@ -130,7 +146,7 @@ export async function POST(request: NextRequest) {
         console.warn("Error claiming match token, falling back:", e);
         matchToken = token;
         try {
-          adoptMatchFromToken(matchToken);
+          await adoptMatchFromToken(matchToken);
         } catch (err) {}
       }
     }

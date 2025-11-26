@@ -42,9 +42,26 @@ export default function InterpolatedCar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (!groupRef.current) return;
-    groupRef.current.position.lerp(targetPos.current, 0.2);
+    // Compute a smoothing alpha based on frame delta so interpolation is
+    // framerate-independent. The higher the factor the snappier the follow.
+    const alpha = Math.min(1, 1 - Math.exp(-delta * 8)); // ~90% in ~0.25s
+
+    // Teleport if server says car moved a large distance (avoid long lerp)
+    const dx = targetPos.current.x - groupRef.current.position.x;
+    const dz = targetPos.current.z - groupRef.current.position.z;
+    const distSq = dx * dx + dz * dz;
+    if (distSq > 12 * 12) {
+      groupRef.current.position.set(
+        targetPos.current.x,
+        targetPos.current.y,
+        targetPos.current.z
+      );
+    } else {
+      groupRef.current.position.lerp(targetPos.current, alpha);
+    }
+
     positionsRef.current.set(car.id, {
       x: groupRef.current.position.x,
       y: groupRef.current.position.z,
