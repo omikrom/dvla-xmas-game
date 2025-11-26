@@ -61,9 +61,9 @@ import CameraAspectUpdater from "./components/CameraAspectUpdater";
 import InterpolatedCar from "./components/InterpolatedCar";
 import FollowCamera from "./components/FollowCamera";
 import DebugPanel from "./components/DebugPanel";
+import AudioHeaderButton from "../components/AudioHeaderButton";
 import MobileControls from "./components/MobileControls";
 import RuntimeDiagnostics from "./components/RuntimeDiagnostics";
-import JoystickDebug from "./components/JoystickDebug";
 import usePowerUps from "./hooks/usePowerUps";
 import useInitializePowerUps from "./hooks/useInitializePowerUps";
 import usePowerupVisuals from "./hooks/usePowerupVisuals";
@@ -189,11 +189,15 @@ export default function RacePage() {
           </div>
         </div>
       ) : (
-        <RaceClient />
+        <>
+          <RaceClient />
+        </>
       )}
+      {/* Telemetry HUD hidden in production */}
     </>
   );
 }
+
 
 function FPSCounter({
   interval = 500,
@@ -518,6 +522,18 @@ function RaceClient() {
   const interpolatedPositionsRef = useRef<
     Map<string, { x: number; y: number }>
   >(new Map());
+  // Short circular buffer of recent authoritative snapshots per-player.
+  // Used by `InterpolatedCar` to render a slightly older state (interpolation delay)
+  // to hide network jitter. Each entry is { ts, x, y, z, angle, vx, vy }.
+  const snapshotsRef = useRef<Map<string, any[]>>(new Map());
+  // Track current local input so InterpolatedCar can apply a lightweight
+  // prediction offset for the local player to reduce perceived input lag.
+  const playerInputRef = useRef<{ steer: number; throttle: number } | null>(
+    null
+  );
+  // Measured RTT (smoothed) used to adapt interpolation delay.
+  const rttRef = useRef<number>(150);
+  const interpolationDelayRef = useRef<number>(150);
   const matchTokenRef = useRef<string | null>(null);
   useEffect(() => {
     try {
@@ -749,35 +765,7 @@ function RaceClient() {
       return s * Math.pow(scaled, 1.5);
     };
 
-    // Expose debug info to window for the JoystickDebug overlay (dev only)
-    try {
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      window.__JOYSTICK_DEBUG__ = {
-        pointerType: (event as any)?.pointerType || "unknown",
-        clientX,
-        clientY,
-        cx:
-          (rotatorRef.current?.getBoundingClientRect().left ?? 0) +
-          (rotatorRef.current?.getBoundingClientRect().width ?? 0) / 2,
-        cy:
-          (rotatorRef.current?.getBoundingClientRect().top ?? 0) +
-          (rotatorRef.current?.getBoundingClientRect().height ?? 0) / 2,
-        dx,
-        dy,
-        rx: typeof rx !== "undefined" ? rx : 0,
-        ry: typeof ry !== "undefined" ? ry : 0,
-        relativeX,
-        relativeY,
-        nextX,
-        nextY,
-        // show raw curve values and the final output after any axis inversion
-        curveRawX: curve(nextX),
-        curveRawY: curve(nextY),
-        finalX: curve(nextX),
-        finalY: curve(nextY),
-      };
-    } catch (e) {}
+    // Joystick debug overlay removed; no global debug object will be set.
 
     // Horizontal axis: positive = right, negative = left — keep this
     // convention so keyboard and joystick align consistently.
@@ -878,6 +866,11 @@ function RaceClient() {
 
           const clientSendTs = Date.now();
 
+          // update local input ref immediately so visuals can be predicted
+          try {
+            playerInputRef.current = { steer, throttle };
+          } catch (e) {}
+
           const response = await fetch("/api/game", {
             method: "POST",
             headers: {
@@ -943,6 +936,17 @@ function RaceClient() {
                   processing: data.timing.processingMs,
                   approxOneWay,
                 });
+                // smooth RTT into a running estimate used to adapt interpolation
+                try {
+                  const prev = rttRef.current || rtt;
+                  // simple EMA smoothing
+                  rttRef.current = Math.round(prev * 0.75 + rtt * 0.25);
+                  // set interpolation delay to half RTT + cushion (ms)
+                  // Raise the minimum interpolation delay to reduce extrapolation
+                  // at moderate RTTs (e.g. ~120ms). This trades a bit of input
+                  // responsiveness for visual smoothness.
+                  interpolationDelayRef.current = Math.min(300, Math.max(150, Math.round(rttRef.current / 2 + 40)));
+                } catch (e) {}
               } else {
                 console.log(
                   "latency: clientSendTs not present in response/timing"
@@ -985,7 +989,145 @@ function RaceClient() {
               playersById.set(p.id, p);
             }
             const dedupedPlayers = Array.from(playersById.values());
-            setCars(dedupedPlayers);
+            // record snapshots for interpolation buffering
+            try {
+              for (const p of dedupedPlayers) {
+                  const arr = snapshotsRef.current.get(p.id) || [];
+                  const ts = (data.timing && data.timing.serverSendMs) ? data.timing.serverSendMs : Date.now();
+                  // ensure monotonic timestamps
+                  const lastTs = arr.length ? arr[arr.length - 1].ts : 0;
+                  const safeTs = ts <= lastTs ? lastTs + 1 : ts;
+                  // diagnostic: detect large gaps or late-arriving samples
+                  try {
+                    const prevTs = lastTs;
+                    const gap = ts - prevTs;
+                    if (prevTs && gap > 400) {
+                      pushDebug(
+                        `Large snapshot gap for ${p.id}: ${gap}ms (serverSendMs ${ts}, prev ${prevTs})`,
+                        "warn"
+                      );
+                    }
+                    if (ts < prevTs) {
+                      pushDebug(
+                        `Out-of-order snapshot ts for ${p.id}: ${ts} < ${prevTs}`,
+                        "warn"
+                      );
+                    }
+                  } catch (e) {}
+                  // small low-pass filter to reduce spike magnitude from late-arriving corrections
+                  const prev = arr.length ? arr[arr.length - 1] : null;
+                  const SMOOTH_ALPHA = 0.28; // how much new sample influences stored snapshot
+                  const sx = prev ? (prev.x * (1 - SMOOTH_ALPHA) + p.x * SMOOTH_ALPHA) : p.x;
+                  const sy = prev ? (prev.y * (1 - SMOOTH_ALPHA) + p.y * SMOOTH_ALPHA) : p.y;
+                  // compute velocity from previous stored snapshot when server doesn't provide it
+                  let vx = 0;
+                  let vy = 0;
+                  if (typeof p.vx === "number" && typeof p.vy === "number") {
+                    vx = p.vx;
+                    vy = p.vy;
+                  } else if (prev) {
+                    const dtMs = Math.max(1, safeTs - prev.ts);
+                    const dt = dtMs / 1000;
+                    // raw instantaneous velocity
+                    let rawVx = (sx - prev.x) / dt;
+                    let rawVy = (sy - prev.y) / dt;
+                    // clamp absurd velocities before smoothing
+                    const MAX_V = 200; // units/sec
+                    if (!Number.isFinite(rawVx) || Math.abs(rawVx) > MAX_V) rawVx = Math.sign(rawVx) * MAX_V;
+                    if (!Number.isFinite(rawVy) || Math.abs(rawVy) > MAX_V) rawVy = Math.sign(rawVy) * MAX_V;
+                    // smooth velocity using previous stored vx/vy to reduce jitter in tangents
+                    const V_SMOOTH_ALPHA = 0.45; // how much new velocity influences stored velocity
+                    const prevVx = typeof prev.vx === 'number' ? prev.vx : rawVx;
+                    const prevVy = typeof prev.vy === 'number' ? prev.vy : rawVy;
+                    vx = prevVx * (1 - V_SMOOTH_ALPHA) + rawVx * V_SMOOTH_ALPHA;
+                    vy = prevVy * (1 - V_SMOOTH_ALPHA) + rawVy * V_SMOOTH_ALPHA;
+                  }
+
+                  // If there's a big time gap since the last stored snapshot,
+                  // insert a few interpolated snapshots to give the renderer
+                  // more samples to interpolate between. This helps hide
+                  // stepping when server updates are sparse or bursty.
+                  const prevTs = prev ? prev.ts : 0;
+                  const gapMs = safeTs - prevTs;
+                  const FILL_SPACING_MS = isMobile ? 40 : 60; // desired spacing for filler samples (smaller spacing -> smoother)
+                    const MAX_FILL = isMobile ? 12 : 8; // cap how many filler samples to insert
+                  if (prev && gapMs > FILL_SPACING_MS * 1.25) {
+                    // compute number of intermediate samples (exclude endpoints)
+                    const approx = Math.floor(gapMs / FILL_SPACING_MS) - 1;
+                    const fillCount = Math.max(0, Math.min(MAX_FILL, approx));
+                    if (fillCount > 0) {
+                      if (fillCount > 0) {
+                        // Use Hermite interpolation to generate smoother filler samples
+                        // between `prev` and the new sample (sx,sy) using the
+                        // derived velocities. This produces smoother tangents than
+                        // simple linear lerp when snapshots are sparse.
+                        const totalMs = Math.max(1, safeTs - prevTs);
+                        const totalSec = totalMs / 1000;
+                        for (let i = 1; i <= fillCount; i++) {
+                          const its = Math.round(prevTs + (totalMs * i) / (fillCount + 1));
+                          const s = (its - prevTs) / totalMs;
+                          const s2 = s * s;
+                          const s3 = s2 * s;
+                          const h00 = 2 * s3 - 3 * s2 + 1;
+                          const h10 = s3 - 2 * s2 + s;
+                          const h01 = -2 * s3 + 3 * s2;
+                          const h11 = s3 - s2;
+
+                          const pvx = typeof prev.vx === 'number' ? prev.vx : vx;
+                          const pvy = typeof prev.vy === 'number' ? prev.vy : vy;
+                          const bvx = vx; // use current derived vx/vy for b
+                          const bvy = vy;
+                          const tangentScale = 0.6;
+                          const m0x = pvx * totalSec * tangentScale;
+                          const m1x = bvx * totalSec * tangentScale;
+                          const m0y = pvy * totalSec * tangentScale;
+                          const m1y = bvy * totalSec * tangentScale;
+
+                          const ix = h00 * prev.x + h10 * m0x + h01 * sx + h11 * m1x;
+                          const iy = h00 * prev.y + h10 * m0y + h01 * sy + h11 * m1y;
+                          const iz = h00 * (prev.z || 0.3) + h01 * (p.z ?? 0.3);
+                          const ia = typeof prev.angle === "number" && typeof p.angle === "number"
+                            ? (() => {
+                                let d = (p.angle || 0) - (prev.angle || 0);
+                                if (d > Math.PI) d -= Math.PI * 2;
+                                if (d < -Math.PI) d += Math.PI * 2;
+                                return (prev.angle || 0) + d * s;
+                              })()
+                            : p.angle;
+                          arr.push({ ts: its, x: ix, y: iy, z: iz, angle: ia, vx: (ix - prev.x) / ((its - prevTs) / 1000 || 1), vy: (iy - prev.y) / ((its - prevTs) / 1000 || 1) });
+                        }
+                        // record telemetry
+                        try {
+                          const gd = (window as any).__GAME_DIAGS = (window as any).__GAME_DIAGS || {};
+                          gd.fillers = (gd.fillers || 0) + fillCount;
+                          gd.fillEvents = (gd.fillEvents || 0) + 1;
+                          gd.gapCount = (gd.gapCount || 0) + 1;
+                          gd.gapSum = (gd.gapSum || 0) + gapMs;
+                          if ((window as any).__GAME_DEBUG__) {
+                            console.info("interp: inserted", fillCount, "fillers for", p.id, "gapMs", gapMs);
+                          }
+                        } catch (e) {}
+                      }
+                    }
+                  }
+
+                  // finally push the reported (smoothed) sample
+                  arr.push({
+                    ts: safeTs,
+                    x: sx,
+                    y: sy,
+                    z: p.z ?? 0.3,
+                    angle: p.angle,
+                    vx,
+                    vy,
+                  });
+                // keep only last ~40 snapshots per player (enough for buffering)
+                if (arr.length > 40) arr.splice(0, arr.length - 40);
+                snapshotsRef.current.set(p.id, arr);
+              }
+            } catch (e) {}
+                setCars(dedupedPlayers);
+                // (Debug instrumentation removed) setCars already updated above.
             setServerFps(data.serverFps || 0);
             // Compare destructibles for changes (destroyed state & debris counts)
             try {
@@ -1787,6 +1929,7 @@ function RaceClient() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <AudioHeaderButton />
             {myCar?.destroyed && (
               <div className="flex items-center gap-2 mr-4">
                 <p className="text-sm text-red-400 font-semibold drop-shadow">
@@ -1826,7 +1969,7 @@ function RaceClient() {
           collisionEffects={collisionEffects}
         /> */}
 
-        <JoystickDebug />
+        {/* Joystick debug removed */}
 
         {/* Repair toast */}
         {repairToast && (
@@ -2237,6 +2380,7 @@ Cannot read properties of undefined (reading 'replace')
                   carrierElevations={carrierElevations}
                   interpolatedPositionsRef={interpolatedPositionsRef}
                   cars={cars}
+                  localPlayerId={playerId}
                 />
 
                 {cars.map((car) => {
@@ -2274,7 +2418,12 @@ Cannot read properties of undefined (reading 'replace')
                       key={car.id}
                       car={car}
                       positionsRef={interpolatedPositionsRef}
+                      snapshotsRef={snapshotsRef}
+                      interpolationDelayRef={interpolationDelayRef}
+                      isMobile={isMobile}
                       trailColor={bodyColor}
+                      localPlayerId={playerId}
+                      playerInputRef={playerInputRef}
                     >
                       <CarModel
                         position={[0, 0, 0]}
@@ -2882,6 +3031,8 @@ Cannot read properties of undefined (reading 'replace')
           onClear={() => setDebugLogs([])}
           visible={debugVisible && !isMobile}
         />
+
+        {/* Interpolation tuner removed - using stored defaults in InterpolatedCar */}
 
         {/* Measurement overlay - shows main/rotator rects + canvasSize for debugging on mobile */}
         {/* Measurement overlay removed per request */}

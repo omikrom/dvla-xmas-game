@@ -27,6 +27,28 @@ import { getRoom } from "@/lib/gameState";
 const nowMs = () => Number(process.hrtime.bigint() / BigInt(1e6));
 const LOG_THRESHOLD = 1;
 
+// Dev helper: simulate network latency for testing higher RTTs. Controlled
+// by the request header `x-simulate-latency-ms` or query param
+// `?simulateLatencyMs=120`. Only active when not in production to avoid
+// accidental delays in real deployments.
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+async function maybeSimulateLatency(request: NextRequest) {
+  try {
+    if (process.env.NODE_ENV === "production") return;
+    const hdr = request.headers.get("x-simulate-latency-ms");
+    const qp = request.nextUrl?.searchParams?.get("simulateLatencyMs");
+    const raw = hdr ?? qp ?? null;
+    if (!raw) return;
+    const ms = Number(raw);
+    if (!isNaN(ms) && ms > 0 && ms < 60000) {
+      // clamp to reasonable range and await
+      await sleep(ms);
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
 async function measure<T>(name: string, fn: () => T | Promise<T>) {
   const t0 = nowMs();
   const result = await Promise.resolve().then(fn);
@@ -39,6 +61,7 @@ async function measure<T>(name: string, fn: () => T | Promise<T>) {
 
 export async function POST(request: NextRequest) {
   try {
+    await maybeSimulateLatency(request);
     const serverReceiveMs = Date.now();
     const body = await request.json();
     const { playerId, name, steer, throttle } = body;
@@ -206,8 +229,13 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // allow quick dev testing of higher RTT via query param or header
+    // (e.g. `/api/game?simulateLatencyMs=120` or header `x-simulate-latency-ms: 120`)
+    // note: only active when NODE_ENV !== 'production'
+    await maybeSimulateLatency(request);
+
     return NextResponse.json({
       gameState: getGameState(),
       instanceId: getInstanceId(),

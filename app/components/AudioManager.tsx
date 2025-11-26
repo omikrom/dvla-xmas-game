@@ -41,6 +41,21 @@ export default function AudioManager() {
   const isFadingRef = useRef(false);
   const [requiresUserGesture, setRequiresUserGesture] = useState(false);
   const lastVolumeRef = useRef<number>(0.7);
+  const desiredStateRef = useRef<string | null>(null);
+
+  function readAudioState() {
+    try {
+      const s = sessionStorage.getItem("GAME_AUDIO_STATE");
+      if (s) return JSON.parse(s);
+    } catch (e) {}
+    return { desired: "playing", volume: 0.7 };
+  }
+
+  function writeAudioState(obj: any) {
+    try {
+      sessionStorage.setItem("GAME_AUDIO_STATE", JSON.stringify(obj));
+    } catch (e) {}
+  }
 
   // Define playlists (public folder)
   const lobbyPlaylist = [
@@ -57,6 +72,12 @@ export default function AudioManager() {
 
   useEffect(() => {
     mountedRef.current = true;
+    // initialise persisted audio state
+    try {
+      const s = readAudioState();
+      lastVolumeRef.current = typeof s.volume === "number" ? s.volume : lastVolumeRef.current;
+      desiredStateRef.current = s.desired || "playing";
+    } catch (e) {}
 
     const playTrack = async (playlist: Playlist, startIndex = 0) => {
       // mark this play request so concurrent calls can be ignored
@@ -140,10 +161,14 @@ export default function AudioManager() {
     };
 
     const handlePlayLobby = () => {
+      // Respect explicit user stop preference
+      if (desiredStateRef.current === "stopped") return;
       const idx = Math.floor(Math.random() * Math.max(1, lobbyPlaylist.length));
       playTrack(lobbyPlaylist, idx).catch(() => {});
     };
     const handlePlayRacing = () => {
+      // Respect explicit user stop preference
+      if (desiredStateRef.current === "stopped") return;
       const idx = Math.floor(
         Math.random() * Math.max(1, racingPlaylist.length)
       );
@@ -167,6 +192,11 @@ export default function AudioManager() {
           new CustomEvent("audio:status", { detail: { playing: false } })
         );
       } catch (e) {}
+      // persist desired stopped state
+      try {
+        desiredStateRef.current = "stopped";
+        writeAudioState({ desired: "stopped", volume: lastVolumeRef.current });
+      } catch (e) {}
     };
 
     const handleToggle = () => {
@@ -176,6 +206,10 @@ export default function AudioManager() {
       } else {
         // start lobby playlist
         handlePlayLobby();
+        try {
+          desiredStateRef.current = "playing";
+          writeAudioState({ desired: "playing", volume: lastVolumeRef.current });
+        } catch (e) {}
       }
     };
 
@@ -260,11 +294,16 @@ export default function AudioManager() {
             new CustomEvent("audio:volume", { detail: { volume: cur.volume } })
           );
         } catch (e) {}
+        try {
+          writeAudioState({ desired: desiredStateRef.current || "playing", volume: lastVolumeRef.current });
+        } catch (e) {}
       } catch (e) {}
     };
 
-    // Start lobby music by default
-    handlePlayLobby();
+    // Do not auto-start music on mount. Playback should only begin in
+    // response to explicit `audio:playLobby` / `audio:playRacing` events.
+    // This prevents navigation (eg. entering `/race`) from starting audio
+    // unexpectedly if the user previously stopped playback.
 
     window.addEventListener("audio:playLobby", handlePlayLobby);
     window.addEventListener("audio:playRacing", handlePlayRacing);
@@ -320,6 +359,10 @@ export default function AudioManager() {
     const evt = new Event("audio:playLobby");
     window.dispatchEvent(evt);
     setRequiresUserGesture(false);
+    try {
+      desiredStateRef.current = "playing";
+      writeAudioState({ desired: "playing", volume: lastVolumeRef.current });
+    } catch (e) {}
   }, []);
 
   // Listen for playback start to inform UI

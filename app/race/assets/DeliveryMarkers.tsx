@@ -18,6 +18,7 @@ type DeliveryTokensProps = {
   interpolatedPositionsRef?: React.RefObject<
     Map<string, { x: number; y: number }>
   >;
+  localPlayerId?: string | null;
   cars?: PlayerCar[];
 };
 
@@ -121,23 +122,43 @@ function CarriedDelivery({
   delivery,
   carrierElevation,
   interpolatedPositionsRef,
+  localPlayerId,
 }: {
   delivery: DeliveryItem;
   carrierElevation: number;
   interpolatedPositionsRef: React.RefObject<
     Map<string, { x: number; y: number }>
   >;
+  localPlayerId?: string | null;
 }) {
   const groupRef = useRef<THREE.Group>(null);
 
-  useFrame(() => {
+  useFrame((state, delta) => {
     if (!groupRef.current || !delivery.carrierId) return;
     const interpolatedPos = interpolatedPositionsRef.current?.get(
       delivery.carrierId
     );
     if (interpolatedPos) {
-      groupRef.current.position.x = interpolatedPos.x;
-      groupRef.current.position.z = interpolatedPos.y;
+      try {
+        if (delivery.carrierId && localPlayerId && delivery.carrierId === localPlayerId) {
+          // local player: snap to visual so held present feels immediate
+          groupRef.current.position.x = interpolatedPos.x;
+          groupRef.current.position.z = interpolatedPos.y;
+        } else {
+          // remote carriers: use delta-aware exponential smoothing
+          // alpha = 1 - exp(-dt / tau). tau tuned to ~0.12s for a snappy feel.
+          const TAU = 0.12;
+          const alpha = 1 - Math.exp(-Math.max(0, delta) / TAU);
+          const g = groupRef.current.position;
+          const targetX = interpolatedPos.x;
+          const targetZ = interpolatedPos.y;
+          g.x += (targetX - g.x) * alpha;
+          g.z += (targetZ - g.z) * alpha;
+        }
+      } catch (e) {
+        groupRef.current.position.x = interpolatedPos.x;
+        groupRef.current.position.z = interpolatedPos.y;
+      }
     }
   });
 
@@ -163,6 +184,7 @@ function DeliveryTokensBase({
   deliveries,
   carrierElevations,
   interpolatedPositionsRef,
+  localPlayerId,
   cars,
 }: DeliveryTokensProps) {
   if (!deliveries.length) return null;
@@ -196,6 +218,7 @@ function DeliveryTokensBase({
               delivery={delivery}
               carrierElevation={carrierElevation ?? DEFAULT_GROUND_ELEVATION}
               interpolatedPositionsRef={interpolatedPositionsRef}
+              localPlayerId={localPlayerId}
             />
           );
         }

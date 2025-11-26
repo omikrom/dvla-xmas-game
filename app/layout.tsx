@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import AudioManager from "./components/AudioManager";
-import AudioControls from "./components/AudioControls";
+import AudioHeaderButton from "./components/AudioHeaderButton";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,7 +33,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <AudioManager />
-        <AudioControls />
+        <div className="fixed top-4 right-4 z-50 pointer-events-auto">
+          <AudioHeaderButton />
+        </div>
         {children}
       </body>
     </html>
