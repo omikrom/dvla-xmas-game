@@ -255,10 +255,9 @@ import {
 } from "@/lib/matchStore";
 import { claimMatchToken } from "@/lib/matchStore";
 
-// For demo builds we use a stable demo secret so signed tokens validate
-// across simple local deployments. In production you should set
-// `process.env.MATCH_SECRET` to a secure value.
-const MATCH_SECRET = process.env.MATCH_SECRET || "demo-match-secret";
+// NOTE: MATCH_SECRET is hard-coded by request. This is intentional but
+// insecure for public deployments — rotate/change the value if needed.
+const MATCH_SECRET = "demo-match-secret";
 
 function signPayload(payloadB64: string) {
   return crypto
@@ -326,7 +325,12 @@ export function getMatchToken() {
 
 export async function adoptMatchFromToken(token?: string | null) {
   const payload = verifyMatchToken(token || undefined);
-  if (!payload) return false;
+  if (!payload) {
+    try {
+      logInfo(`[GameState] adoptMatchFromToken: token verification failed`);
+    } catch (e) {}
+    return false;
+  }
   try {
     // Only adopt if we don't already have a later end time
     if (
@@ -410,6 +414,9 @@ export async function adoptMatchFromToken(token?: string | null) {
                   payload.startedAt
                 ).toISOString()}`
               );
+              try {
+                logInfo(`[GameState] adoptMatchFromToken: loaded authoritative snapshot (non-owner) start=${new Date(payload.startedAt).toISOString()} instance=${INSTANCE_ID}`);
+              } catch (e) {}
               return true;
             } catch (e) {
               console.warn("Failed to apply match snapshot:", e);
@@ -523,9 +530,15 @@ export async function adoptMatchFromToken(token?: string | null) {
           payload.startedAt
         ).toISOString()}`
       );
+      try {
+        logInfo(`[GameState] adoptMatchFromToken: initialized local race state (owner=${amOwner}) start=${new Date(payload.startedAt).toISOString()} instance=${INSTANCE_ID}`);
+      } catch (e) {}
     }
     return true;
   } catch (e) {
+    try {
+      console.warn("[GameState] adoptMatchFromToken error:", e);
+    } catch (err) {}
     return false;
   }
 }
@@ -1563,6 +1576,24 @@ export function getTimerState() {
     durationMs: room.matchDurationMs,
     timeRemainingMs: Math.max(room.raceEndTime - now, 0),
   };
+}
+
+// Ensure the match is finalized if the timer has expired. Returns true
+// if a finalize was performed.
+export function ensureFinalizeIfDue() {
+  try {
+    const now = Date.now();
+    if (room.gameState === "racing" && room.raceEndTime && now >= room.raceEndTime) {
+      console.log("[GameState] ensureFinalizeIfDue: timer expired, finalizing now");
+      try {
+        finalizeRace();
+      } catch (e) {
+        console.warn("[GameState] ensureFinalizeIfDue finalizeRace error:", e);
+      }
+      return true;
+    }
+  } catch (e) {}
+  return false;
 }
 
 export function getLeaderboard() {

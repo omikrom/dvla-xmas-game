@@ -4,6 +4,7 @@ import {
   createOrUpdatePlayer,
   getInstanceId,
   adoptMatchFromToken,
+  ensureFinalizeIfDue,
   getMatchToken,
   getGameState,
   getRoomState,
@@ -50,16 +51,23 @@ export async function POST(request: NextRequest) {
     }
 
     // If client provided a signed match token, adopt it so this worker's
-    // in-memory room uses the same race start/end times.
+    // in-memory room uses the same race start/end times. Expose adoptOk
+    // in the response for client-side diagnostics.
+    let adoptOk: boolean | null = null;
     try {
       if (body.matchToken) {
         const ok = await adoptMatchFromToken(body.matchToken);
+        adoptOk = !!ok;
         if (ok) {
           // include a quick log for diagnostics
           console.log(`[api/game] adopted match token from client`);
+        } else {
+          console.log(`[api/game] adoptMatchFromToken returned false for provided token`);
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn("[api/game] adoptMatchFromToken threw:", e);
+    }
 
     // If this worker is NOT the owner, try to fetch the latest authoritative
     // snapshot (served by the owner) so read-only workers serve up-to-date state.
@@ -157,6 +165,14 @@ export async function POST(request: NextRequest) {
     const powerUpsRes = await measure("getPowerUps", () => getPowerUps());
     const serverFpsRes = await measure("getServerFps", () => getServerFps());
 
+    // If the timer shows expired but periodic physics didn't finalize
+    // yet (rare), force finalize here to ensure clients transition.
+    try {
+      if (timerRes.result && (timerRes.result as any).timeRemainingMs === 0) {
+        ensureFinalizeIfDue();
+      }
+    } catch (e) {}
+
     const serverSendMs = Date.now();
     const timing = {
       clientSendMs: body.clientSendTs || null,
@@ -178,6 +194,7 @@ export async function POST(request: NextRequest) {
       serverFps: serverFpsRes.result,
       instanceId: getInstanceId(),
       matchToken: getMatchToken(),
+      adoptOk,
       timing,
     });
   } catch (error) {
@@ -195,6 +212,7 @@ export async function GET() {
       gameState: getGameState(),
       instanceId: getInstanceId(),
       matchToken: getMatchToken(),
+      timer: getTimerState(),
     });
   } catch (e) {
     return NextResponse.json({ error: "failed" }, { status: 500 });

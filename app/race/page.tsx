@@ -86,7 +86,113 @@ function dbg(...args: any[]) {
 }
 
 export default function RacePage() {
-  return <RaceClient />;
+  const router = useRouter();
+  const [preparing, setPreparing] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    // Throttle/logging helpers for preparing polls
+    let pollCount = 0;
+    let prevPollState: any = null;
+    let preparingStartedAt: number | null = null;
+    async function check() {
+      try {
+        const res = await fetch("/api/game", { method: "GET" });
+        if (!mounted) return;
+        if (!res.ok) {
+          // If we couldn't fetch status, send user to homepage as a fallback
+          router.replace("/");
+          return;
+        }
+        const data = await res.json();
+        // Diagnostic log to help investigate why clients may not see "racing"
+        // Visible in browser console; remove when issue is resolved.
+        try {
+          // Use console.info so it's easy to filter in devtools
+          console.info("[race] /api/game GET ->", {
+            gameState: data.gameState,
+            timer: data.timer,
+            matchToken: data.matchToken,
+            instanceId: data.instanceId,
+          });
+        } catch (e) {}
+        if (!mounted) return;
+        // If the server reports the match is active, continue.
+        if (data.gameState === "racing") {
+          setPreparing(false);
+          return;
+        }
+
+        // If the server has a future `startedAt`, stay on this page and show
+        // a lightweight preparing screen until the official start time.
+        const startedAt = data.timer?.startedAt;
+        if (typeof startedAt === "number" && startedAt > Date.now()) {
+          setPreparing(true);
+          preparingStartedAt = Date.now();
+          // Poll until the server transitions to racing or the start time passes
+          const poll = setInterval(async () => {
+            try {
+              const r2 = await fetch("/api/game", { method: "GET" });
+              if (!r2.ok) return;
+              const d2 = await r2.json();
+              // Throttled logging: log on state change or once every 5 polls
+              try {
+                pollCount++;
+                const changed = !prevPollState || prevPollState.gameState !== d2.gameState || JSON.stringify(prevPollState.timer) !== JSON.stringify(d2.timer);
+                if (changed || pollCount % 5 === 0) {
+                  console.info("[race] poll /api/game ->", {
+                    gameState: d2.gameState,
+                    timer: d2.timer,
+                    matchToken: d2.matchToken,
+                    instanceId: d2.instanceId,
+                    pollCount,
+                  });
+                  prevPollState = d2;
+                }
+                // If we've been preparing for a while, escalate the log to warn every 10s
+                if (preparingStartedAt && Date.now() - preparingStartedAt > 10000 && pollCount % 10 === 0) {
+                  console.warn("[race] still preparing after >10s, last server timer:", d2.timer, "instanceId:", d2.instanceId);
+                }
+              } catch (e) {}
+              if (d2.gameState === "racing" || (d2.timer && d2.timer.startedAt <= Date.now())) {
+                clearInterval(poll);
+                setPreparing(false);
+                // trigger a reload so the main loop picks up the racing state
+                window.location.reload();
+              }
+            } catch (e) {}
+          }, 500);
+          return;
+        }
+
+        // Not racing and no future start — go back to lobby
+        router.replace("/lobby");
+      } catch (e) {
+        try {
+          router.replace("/");
+        } catch (err) {}
+      }
+    }
+    check();
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
+
+  return (
+    <>
+      {preparing ? (
+        <div className="flex items-center justify-center h-screen">
+          <div className="bg-white/90 p-6 rounded shadow text-center">
+            <h2 className="text-xl font-semibold">Preparing match…</h2>
+            <p className="mt-2 text-sm text-gray-700">Waiting for server to initialize the race.</p>
+          </div>
+        </div>
+      ) : (
+        <RaceClient />
+      )}
+    </>
+  );
 }
 
 function FPSCounter({
@@ -216,6 +322,7 @@ function RaceClient() {
   // racing match, send them back to the lobby. This avoids clients entering
   // the race view when the server is still in lobby/finished state.
   const router = useRouter();
+  const [preparing, setPreparing] = useState(false);
   useEffect(() => {
     let mounted = true;
     async function check() {
@@ -229,10 +336,36 @@ function RaceClient() {
         }
         const data = await res.json();
         if (!mounted) return;
-        // If we're not in a racing state, send user back to the lobby
-        if (data.gameState !== "racing") {
-          router.replace("/lobby");
+        // If the server reports the match is active, continue.
+        if (data.gameState === "racing") {
+          setPreparing(false);
+          return;
         }
+
+        // If the server has a future `startedAt`, stay on this page and show
+        // a lightweight preparing screen until the official start time.
+        const startedAt = data.timer?.startedAt;
+        if (typeof startedAt === "number" && startedAt > Date.now()) {
+          setPreparing(true);
+          // Poll until the server transitions to racing or the start time passes
+          const poll = setInterval(async () => {
+            try {
+              const r2 = await fetch("/api/game", { method: "GET" });
+              if (!r2.ok) return;
+              const d2 = await r2.json();
+              if (d2.gameState === "racing" || (d2.timer && d2.timer.startedAt <= Date.now())) {
+                clearInterval(poll);
+                setPreparing(false);
+                // trigger a reload so the main loop picks up the racing state
+                window.location.reload();
+              }
+            } catch (e) {}
+          }, 500);
+          return;
+        }
+
+        // Not racing and no future start — go back to lobby
+        router.replace("/lobby");
       } catch (e) {
         try {
           router.replace("/");
@@ -780,6 +913,21 @@ function RaceClient() {
                 timing: data.timing,
               });
 
+              // Expose adoptOk (if present) for quick client-side visibility
+              try {
+                if (typeof data.adoptOk !== "undefined") {
+                  const tk = data.matchToken || null;
+                  const masked = tk
+                    ? `${String(tk).slice(0, 8)}...${String(tk).slice(-8)}`
+                    : null;
+                  console.info("[race] adoptOk ->", {
+                    adoptOk: data.adoptOk,
+                    matchToken: masked,
+                    instanceId: data.instanceId,
+                  });
+                }
+              } catch (e) {}
+
               // RTT
               let rtt = 0;
               let approxOneWay = 0;
@@ -1038,21 +1186,36 @@ function RaceClient() {
     timerState && timeRemainingMs !== null
       ? Math.max(timerState.durationMs - timeRemainingMs, 0)
       : null;
-  const countdownRemainingMs =
-    gameState === "racing" &&
-    elapsedMs !== null &&
-    elapsedMs < COUNTDOWN_DURATION_MS
-      ? COUNTDOWN_DURATION_MS - elapsedMs
+
+  // If the server has provided a `startedAt` in the future, compute a
+  // pre-start countdown based on the official start time so the UI and
+  // server are aligned. Otherwise, fall back to the existing in-race
+  // countdown which counts from race start.
+  const nowMs = Date.now();
+  const preStartRemainingMs =
+    timerState && typeof timerState.startedAt === "number"
+      ? Math.max(timerState.startedAt - nowMs, 0)
       : 0;
+
+  const isPreStart = preStartRemainingMs > 0;
+  const countdownRemainingMs = isPreStart
+    ? preStartRemainingMs
+    : gameState === "racing" && elapsedMs !== null && elapsedMs < COUNTDOWN_DURATION_MS
+    ? COUNTDOWN_DURATION_MS - elapsedMs
+    : 0;
+
   const showCountdown = countdownRemainingMs > 0;
-  const showGoSignal =
+
+  const showGoSignal = !isPreStart &&
     gameState === "racing" &&
     elapsedMs !== null &&
     elapsedMs >= COUNTDOWN_DURATION_MS &&
     elapsedMs < COUNTDOWN_DURATION_MS + GO_FLASH_MS;
+
   const countdownNumber = showCountdown
     ? Math.ceil(countdownRemainingMs / 1000)
     : null;
+
   const trafficActiveIndex = showCountdown
     ? Math.min(2, 3 - (countdownNumber || 3))
     : showGoSignal
@@ -1386,8 +1549,14 @@ function RaceClient() {
           } catch (e) {}
           try {
             // force context loss then dispose renderer
-            if (typeof gl.forceContextLoss === "function") {
-              gl.forceContextLoss();
+            try {
+              const ctx = (gl as any).getContext && (gl as any).getContext();
+              const alreadyLost = ctx && typeof ctx.isContextLost === "function" && ctx.isContextLost();
+              if (!alreadyLost && typeof gl.forceContextLoss === "function") {
+                gl.forceContextLoss();
+              }
+            } catch (e) {
+              // ignore context-loss errors
             }
           } catch (e) {}
           try {
@@ -1786,20 +1955,52 @@ function RaceClient() {
               onCreated={({ gl }) => {
                 glRef.current = gl;
                 const dpr = Math.max(1, window.devicePixelRatio || 1);
-                gl.setPixelRatio(dpr);
-                // Let three.js set the canvas DOM style and pixel buffer consistently
-                gl.setSize(canvasSize.w, canvasSize.h, true);
-                // Enable shadow map and use a soft PCF type for nicer soft edges
-                (gl as any).shadowMap.enabled = true;
-                (gl as any).shadowMap.type = (THREE as any).PCFSoftShadowMap;
-                // Use physically correct lights and sRGB output for nicer lighting
-                // (improves environment reflections and color accuracy)
-                (gl as any).physicallyCorrectLights = true;
-                (gl as any).outputEncoding = (THREE as any).sRGBEncoding;
-                // Use ACES filmic tone mapping for better dynamic range with bloom
-                (gl as any).toneMapping = (THREE as any).ACESFilmicToneMapping;
-                // Slightly lower exposure to keep bloom under control
-                (gl as any).toneMappingExposure = 0.9;
+                try {
+                  gl.setPixelRatio(dpr);
+                } catch (e) {}
+
+                // Guard WebGL init: some browsers/layouts report 0x0 canvas
+                // initially which causes GL errors (invalid texture/framebuffer).
+                // Retry a few times using the canvas client size before calling
+                // `setSize`. If size stays zero, postpone sizing until a resize
+                // event (the ResizeObserver will handle it) and log a single
+                // warning to reduce console spam.
+                let attempts = 0;
+                const applySizeWhenReady = () => {
+                  attempts++;
+                  const canvasEl = (gl as any).domElement as
+                    | HTMLCanvasElement
+                    | undefined;
+                  const measuredW = canvasEl?.clientWidth || canvasSize.w || 0;
+                  const measuredH = canvasEl?.clientHeight || canvasSize.h || 0;
+                  if (measuredW > 0 && measuredH > 0) {
+                    try {
+                      gl.setSize(Math.max(1, measuredW), Math.max(1, measuredH), true);
+                    } catch (e) {
+                      console.warn("[Game] gl.setSize failed:", e);
+                    }
+                  } else if (attempts < 20) {
+                    // retry on next frame for a short window (~333ms)
+                    requestAnimationFrame(applySizeWhenReady);
+                  } else {
+                    console.warn(
+                      "[Game] WebGL init: canvas size remained 0x0 after retries; initialization postponed until resize"
+                    );
+                  }
+                };
+                applySizeWhenReady();
+
+                // Configure renderer properties (safe to set even before sizing)
+                try {
+                  (gl as any).shadowMap.enabled = true;
+                  (gl as any).shadowMap.type = (THREE as any).PCFSoftShadowMap;
+                  (gl as any).physicallyCorrectLights = true;
+                  (gl as any).outputEncoding = (THREE as any).sRGBEncoding;
+                  (gl as any).toneMapping = (THREE as any).ACESFilmicToneMapping;
+                  (gl as any).toneMappingExposure = 0.9;
+                } catch (e) {
+                  // non-fatal renderer property set failure
+                }
 
                 // canvas DOM sizing is handled by three.js when using gl.setSize(..., true)
               }}
