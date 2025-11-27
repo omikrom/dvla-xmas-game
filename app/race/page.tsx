@@ -117,8 +117,11 @@ export default function RacePage() {
           });
         } catch (e) {}
         if (!mounted) return;
-        // If the server reports the match is active, continue.
-        if (data.gameState === "racing") {
+        // If the server reports the match is active and the canonical
+        // match token is present, continue. Require the matchToken so the
+        // client doesn't start rendering before the server has finalized
+        // the match assignment (avoids split/choice races in prod).
+        if (data.gameState === "racing" && data.matchToken) {
           setPreparing(false);
           return;
         }
@@ -168,7 +171,7 @@ export default function RacePage() {
                 }
               } catch (e) {}
               if (
-                d2.gameState === "racing" ||
+                (d2.gameState === "racing" && d2.matchToken) ||
                 (d2.timer && d2.timer.startedAt <= Date.now())
               ) {
                 clearInterval(poll);
@@ -357,8 +360,10 @@ function RaceClient() {
         }
         const data = await res.json();
         if (!mounted) return;
-        // If the server reports the match is active, continue.
-        if (data.gameState === "racing") {
+        // If the server reports the match is active and has a matchToken,
+        // continue. This ensures clients only proceed when assigned to the
+        // canonical match on the server.
+        if (data.gameState === "racing" && data.matchToken) {
           setPreparing(false);
           return;
         }
@@ -375,7 +380,7 @@ function RaceClient() {
               if (!r2.ok) return;
               const d2 = await r2.json();
               if (
-                d2.gameState === "racing" ||
+                (d2.gameState === "racing" && d2.matchToken) ||
                 (d2.timer && d2.timer.startedAt <= Date.now())
               ) {
                 clearInterval(poll);
