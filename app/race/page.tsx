@@ -404,11 +404,10 @@ function RaceClient() {
         // Not racing and no future start — go back to lobby
         try {
           console.warn("[race] redirecting to /lobby (race guard):", {
-            gameState: d2?.gameState,
-            timer: d2?.timer,
-            matchToken: d2?.matchToken,
-            instanceId: d2?.instanceId,
-            pollCount,
+            gameState: data?.gameState,
+            timer: data?.timer,
+            matchToken: data?.matchToken,
+            instanceId: data?.instanceId,
           });
         } catch (e) {}
         router.replace("/lobby");
