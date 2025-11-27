@@ -250,11 +250,15 @@ export default function InterpolatedCar({
             0,
             Math.min(0.5, (targetTime - last.ts) / 1000)
           );
-          const extraPredict =
-            typeof tuner.extraPredict === "number"
-              ? tuner.extraPredict
-              : Math.min(0.06, approxOneWay / 1000);
-          const dt = Math.min(0.5, baseDt + extraPredict);
+          // Accept tuner.extraPredict in seconds or milliseconds (ms>2 treated as ms)
+          const rawExtraPredict =
+            typeof tuner.extraPredict === "number" ? tuner.extraPredict : null;
+          const extraPredictSec = rawExtraPredict != null
+            ? rawExtraPredict > 2
+              ? rawExtraPredict / 1000
+              : rawExtraPredict
+            : Math.min(0.12, approxOneWay / 1000);
+          const dt = Math.min(0.5, baseDt + extraPredictSec);
           sampledX = last.x + (last.vx || 0) * dt;
           sampledY = last.y + (last.vy || 0) * dt;
           sampledZ = last.z ?? 0.3;
@@ -354,6 +358,21 @@ export default function InterpolatedCar({
       const useSnapless =
         typeof tuner.useSnapless === "boolean" ? tuner.useSnapless : true;
       if (useSnapless) {
+        // Determine authoritative speed (units/sec) from last snapshot when available
+        const lastForSpeed = lastSnap || (snaps.length ? snaps[snaps.length - 1] : null);
+        const authVx = lastForSpeed && typeof lastForSpeed.vx === 'number' ? lastForSpeed.vx : 0;
+        const authVy = lastForSpeed && typeof lastForSpeed.vy === 'number' ? lastForSpeed.vy : 0;
+        const authSpeed = Math.hypot(authVx, authVy);
+
+        // normalize extraPredict to seconds (accept ms or seconds)
+        const rawExtra = typeof tuner.extraPredict === 'number' ? tuner.extraPredict : null;
+        const extraSec = rawExtra != null ? (rawExtra > 2 ? rawExtra / 1000 : rawExtra) : Math.min(0.12, approxOneWay / 1000);
+        const predictedLead = authSpeed * extraSec; // units
+
+        // effective max offset should be at least tuned maxOffset but also cover predicted lead
+        const offsetSafety = typeof tuner.offsetSafetyFactor === 'number' ? tuner.offsetSafetyFactor : 1.25;
+        const configuredMaxOffset = typeof tuner.maxOffset === 'number' ? tuner.maxOffset : CORRECT_THRESHOLD;
+        const effectiveMaxOffset = Math.max(configuredMaxOffset, predictedLead * offsetSafety);
         // Snapless offset-based correction (continuous exponential decay)
         // Initialize offset to preserve visual continuity if it's currently zero
         const offset = offsetRef.current;
@@ -385,13 +404,9 @@ export default function InterpolatedCar({
         offset.z *= 1 - smoothing;
 
         // Optional: clamp offset so visuals can't drift too far
-        const maxOffset =
-          typeof tuner.maxOffset === "number"
-            ? tuner.maxOffset
-            : CORRECT_THRESHOLD;
         const offLen = Math.hypot(offset.x, offset.z);
-        if (offLen > maxOffset) {
-          const s = maxOffset / offLen;
+        if (offLen > effectiveMaxOffset) {
+          const s = effectiveMaxOffset / offLen;
           offset.x *= s;
           offset.z *= s;
         }
@@ -417,6 +432,10 @@ export default function InterpolatedCar({
             : isMobile
             ? 18
             : 30;
+        // Scale move speed based on authoritative object speed so faster cars
+        // can be reconciled without excessive clamping.
+        const speedFactor = typeof tuner.moveSpeedFactor === 'number' ? tuner.moveSpeedFactor : 1.8;
+        const effectiveBaseSpeed = Math.max(baseSpeed, authSpeed * speedFactor);
         // Adaptive reach time (ms) - how quickly we want to reach a large gap
         const reachMs =
           typeof tuner.adaptiveReachMs === "number"
@@ -424,9 +443,9 @@ export default function InterpolatedCar({
             : 120;
         // desired speed to cover the gap in ~reachMs
         const desiredSpeed = desiredLen / Math.max(0.001, reachMs / 1000);
-        const maxCap = Math.max(baseSpeed * 6, baseSpeed + 1);
+        const maxCap = Math.max(effectiveBaseSpeed * 6, effectiveBaseSpeed + 1);
         const appliedSpeed = Math.min(
-          Math.max(baseSpeed, desiredSpeed),
+          Math.max(effectiveBaseSpeed, desiredSpeed),
           maxCap
         );
         const maxMove = Math.max(0.001, appliedSpeed * delta);
