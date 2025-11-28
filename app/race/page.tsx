@@ -887,6 +887,30 @@ function RaceClient() {
     (async () => {
       // Exponential backoff state for transient network errors
       let backoff = 0;
+      // Ensure reasonable runtime tuner defaults so we can tweak live
+      try {
+        (window as any).__GAME_TUNER = (window as any).__GAME_TUNER || {};
+        const gt = (window as any).__GAME_TUNER;
+        const defaults: Record<string, any> = {
+          interpolationDelay: 220,
+          safetyMarginMs: 30,
+          extraPredict: 0.14,
+          authLambda: 18,
+          offsetLambda: 9,
+          offsetSafetyFactor: 1.5,
+          maxOffset: 40,
+          moveSpeedFactor: 2.0,
+          maxMoveSpeed: 40,
+          localBlend: 0.6,
+          adaptiveReachMs: 120,
+          tangentScale: 0.6,
+          useSnapless: true,
+        };
+        for (const k of Object.keys(defaults)) {
+          if (typeof gt[k] === "undefined") gt[k] = defaults[k];
+        }
+        console.info("[tuner] defaults applied", gt);
+      } catch (e) {}
       while (mounted) {
         try {
           // Standardize steering signs: left = -1, right = +1 so joystick X

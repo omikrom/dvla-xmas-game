@@ -1727,6 +1727,14 @@ export function createOrUpdatePlayer(
   } else {
     // Update existing player
     const player = currentRoom.players.get(playerId)!;
+    // Log inputs for diagnostics (only a little to avoid huge logs)
+    try {
+      if (player.steer !== steer || player.throttle !== throttle) {
+        console.log(
+          `[${INSTANCE_ID}] updatePlayer input -> ${playerId} steer=${steer} throttle=${throttle} (prev steer=${player.steer} prev throttle=${player.throttle})`
+        );
+      }
+    } catch (e) {}
     player.steer = steer;
     player.throttle = throttle;
     player.lastUpdate = Date.now();
@@ -1888,22 +1896,33 @@ export function updatePhysics(): PlayerCar[] {
       continue;
     } else {
       // Apply acceleration/deceleration based on throttle
-      if (player.throttle > 0) {
-        player.speed += acceleration * player.throttle * dt;
-        if (player.speed > maxSpeed) player.speed = maxSpeed;
-      } else if (player.throttle < 0) {
-        player.speed += acceleration * player.throttle * dt;
-        if (player.speed < -maxSpeed * 0.5) player.speed = -maxSpeed * 0.5;
-      } else {
-        // Natural deceleration when no input
-        if (player.speed > 0) {
-          player.speed -= deceleration * dt;
-          if (player.speed < 0) player.speed = 0;
-        } else if (player.speed < 0) {
-          player.speed += deceleration * dt;
-          if (player.speed > 0) player.speed = 0;
+      try {
+        const prevSpeed = player.speed;
+        if (player.throttle > 0) {
+          player.speed += acceleration * player.throttle * dt;
+          if (player.speed > maxSpeed) player.speed = maxSpeed;
+        } else if (player.throttle < 0) {
+          player.speed += acceleration * player.throttle * dt;
+          if (player.speed < -maxSpeed * 0.5) player.speed = -maxSpeed * 0.5;
+        } else {
+          // Natural deceleration when no input
+          if (player.speed > 0) {
+            player.speed -= deceleration * dt;
+            if (player.speed < 0) player.speed = 0;
+          } else if (player.speed < 0) {
+            player.speed += deceleration * dt;
+            if (player.speed > 0) player.speed = 0;
+          }
         }
-      }
+        // Diagnostic: log when throttle is present or speed changed noticeably
+        try {
+          if (Math.abs(player.throttle) > 0.001 || Math.abs(player.speed - prevSpeed) > 0.001) {
+            console.log(
+              `[${INSTANCE_ID}] physics -> ${player.id} throttle=${player.throttle} speed=${prevSpeed.toFixed(2)}->${player.speed.toFixed(2)}`
+            );
+          }
+        } catch (e) {}
+      } catch (e) {}
     }
 
     // Only turn if moving (turning is proportional to speed)

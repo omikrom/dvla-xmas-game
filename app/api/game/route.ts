@@ -224,7 +224,21 @@ export async function POST(request: NextRequest) {
       console.warn("[api/game] getCurrentMatchToken failed:", e);
     }
 
+    // Optionally include a debug snapshot of a single player when the
+    // client passes `debugPlayerId` in the request body. This avoids
+    // having to grep logs and makes it easy to correlate client/server
+    // state for a particular player during repros.
+    let debugPlayer: any = null;
     try {
+      if (body.debugPlayerId) {
+        debugPlayer =
+          players.find((p: any) => p.id === body.debugPlayerId) || null;
+        console.info("[api/game] debugPlayer ->", {
+          debugPlayerId: body.debugPlayerId,
+          snapshot: debugPlayer,
+        });
+      }
+
       console.info("[api/game] status ->", {
         instanceId: getInstanceId(),
         matchToken: getMatchToken(),
@@ -249,6 +263,7 @@ export async function POST(request: NextRequest) {
       sharedToken,
       adoptOk,
       timing,
+      debugPlayer,
     });
   } catch (error) {
     console.error("Error in game state update:", error);

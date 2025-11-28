@@ -174,6 +174,17 @@ export default function InterpolatedCar({
       sampledY = car.y;
       sampledZ = car.z ?? 0.3;
       sampledAngle = car.angle;
+      try {
+        // Apply a short forward-prediction for the local player to make
+        // controls feel snappy without changing authoritative state.
+        const rawExtra = typeof tuner.extraPredict === "number" ? tuner.extraPredict : null;
+        const extraSec = rawExtra != null ? (rawExtra > 2 ? rawExtra / 1000 : rawExtra) : Math.min(0.18, approxOneWay / 1000);
+        const speed = typeof (car as any).speed === "number" ? (car as any).speed : 0;
+        const predDx = -Math.sin(car.angle || 0) * speed * extraSec;
+        const predDy = -Math.cos(car.angle || 0) * speed * extraSec;
+        sampledX += predDx;
+        sampledY += predDy;
+      } catch (e) {}
     } else if (snaps.length === 0) {
       // no snapshots yet — fall back to last-known server position (car prop)
       sampledX = car.x;
