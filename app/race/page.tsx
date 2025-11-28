@@ -912,6 +912,11 @@ function RaceClient() {
             playerInputRef.current = { steer, throttle };
           } catch (e) {}
 
+          // Diagnostics: log the inputs being sent so we can verify control
+          try {
+            console.debug("[input] send ->", { steer, throttle, matchToken: matchTokenRef.current });
+          } catch (e) {}
+
           const response = await fetch("/api/game", {
             method: "POST",
             headers: {

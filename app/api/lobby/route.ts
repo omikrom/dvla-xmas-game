@@ -128,10 +128,28 @@ export async function POST(request: NextRequest) {
             console.warn("Failed to adopt match token on lobby worker:", e);
           }
         } else {
-          // Another worker already claimed a token — return that one instead
+          // Another worker already claimed a token — try to read the canonical
+          // token from the shared store. Sometimes Redis/KV connections may be
+          // cold on a new instance or briefly delayed; retry briefly before
+          // returning null so clients do not immediately bounce back to lobby.
+          const READ_RETRY_MS = 300;
+          const READ_STEP_MS = 60;
+          let tried = 0;
           matchToken = (await getCurrentMatchToken()) || null;
+          while (!matchToken && tried < READ_RETRY_MS) {
+            try {
+              // wait a short bit and retry
+              await new Promise((res) => setTimeout(res, READ_STEP_MS));
+            } catch (e) {}
+            tried += READ_STEP_MS;
+            try {
+              matchToken = (await getCurrentMatchToken()) || null;
+            } catch (e) {
+              matchToken = null;
+            }
+          }
           try {
-            console.log(`[lobby][${instanceId}] did not claim token, returning existing=${!!matchToken}`);
+            console.log(`[lobby][${instanceId}] did not claim token, returning existing=${!!matchToken} (readRetryMs=${tried})`);
           } catch (e) {}
           // Defensive: if the returned token is expired, release it and clear
           // the value so we don't hand out finished matches to late joiners.
