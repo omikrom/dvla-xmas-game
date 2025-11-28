@@ -21,6 +21,7 @@ import {
   getLastRedisConnectMs,
   getMatchSnapshot,
   getCurrentMatchOwner,
+  getCurrentMatchToken,
 } from "@/lib/matchStore";
 import { getRoom } from "@/lib/gameState";
 
@@ -213,6 +214,26 @@ export async function POST(request: NextRequest) {
       redisConnectMs: getLastRedisConnectMs(),
     };
 
+    // Read the shared store token (if any) to help debug cross-instance races
+    let sharedToken: string | null = null;
+    try {
+      if (typeof getCurrentMatchToken === "function") {
+        sharedToken = await getCurrentMatchToken();
+      }
+    } catch (e) {
+      console.warn("[api/game] getCurrentMatchToken failed:", e);
+    }
+
+    try {
+      console.info("[api/game] status ->", {
+        instanceId: getInstanceId(),
+        matchToken: getMatchToken(),
+        sharedToken,
+        adoptOk,
+        timing,
+      });
+    } catch (e) {}
+
     return NextResponse.json({
       players: serializedPlayers,
       gameState: gameStateRes.result,
@@ -225,6 +246,7 @@ export async function POST(request: NextRequest) {
       serverFps: serverFpsRes.result,
       instanceId: getInstanceId(),
       matchToken: getMatchToken(),
+      sharedToken,
       adoptOk,
       timing,
     });

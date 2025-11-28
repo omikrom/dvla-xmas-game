@@ -96,6 +96,16 @@ export default function LobbyPage() {
 
         if (response.ok) {
           const data: any = await response.json();
+          try {
+            console.info("[lobby] server ->", {
+              matchToken: data.matchToken,
+              claimOk: data.claimOk,
+              adoptOk: data.adoptOk,
+              instanceId: data.instanceId,
+              lastRedisConnectMs: data.lastRedisConnectMs,
+              gameState: data.gameState,
+            });
+          } catch (e) {}
           // persist match token (if lobby provided one) so race clients can adopt it
           try {
             if (data.matchToken) {

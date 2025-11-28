@@ -14,6 +14,7 @@ import {
   getCurrentMatchToken,
   releaseMatchToken,
   saveMatchSnapshot,
+  getLastRedisConnectMs,
 } from "@/lib/matchStore";
 import { getInstanceId } from "@/lib/gameState";
 
@@ -193,6 +194,7 @@ export async function POST(request: NextRequest) {
       claimOk,
       adoptOk,
       instanceId,
+      lastRedisConnectMs: typeof getLastRedisConnectMs === 'function' ? getLastRedisConnectMs() : null,
     });
   } catch (error) {
     console.error("Error in lobby:", error);
