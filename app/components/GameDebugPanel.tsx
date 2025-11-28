@@ -96,6 +96,46 @@ export default function GameDebugPanel({
     }
   }
 
+  async function createAndRegisterLocalPlayer() {
+    try {
+      // generate a stable-but-random id
+      const id = `dbg-${Math.random().toString(36).slice(2, 10)}`;
+      const body = {
+        playerId: id,
+        name: name || "Player",
+        steer: 0,
+        throttle: 0,
+        matchToken: matchToken || undefined,
+        clientSendTs: Date.now(),
+      };
+      console.log("[debug panel] creating local player ->", body);
+      const res = await fetch("/api/game", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      let json: any = null;
+      try {
+        json = await res.json();
+      } catch (e) {
+        json = { status: res.status, text: await res.text() };
+      }
+      console.log("[debug panel] create resp ->", json);
+      setLastResponse(json);
+      if (json && Array.isArray(json.players)) {
+        setPlayersList(json.players);
+      }
+      // set local inputs so subsequent Send Once uses this id
+      setPlayerId(id);
+      setDebugPlayerId(id);
+      try {
+        sessionStorage.setItem("playerId", id);
+      } catch (e) {}
+    } catch (e) {
+      console.error("[debug panel] create player failed", e);
+    }
+  }
+
   function startPolling() {
     if (polling) return;
     setPolling(true);
@@ -258,6 +298,9 @@ export default function GameDebugPanel({
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <button onClick={sendOnce} style={{ flex: 1 }}>
           Send Once
+        </button>
+        <button onClick={createAndRegisterLocalPlayer} style={{ flex: 1 }}>
+          Create Local Player
         </button>
         <button
           onClick={polling ? stopPolling : startPolling}

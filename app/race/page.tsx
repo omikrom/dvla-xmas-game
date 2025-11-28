@@ -17,8 +17,6 @@ import * as THREE from "three";
 import {
   EffectComposer,
   Bloom,
-  DepthOfField,
-  ChromaticAberration,
   Vignette,
   Noise,
   SMAA,
@@ -941,7 +939,11 @@ function RaceClient() {
 
           // Diagnostics: log the inputs being sent so we can verify control
           try {
-            console.debug("[input] send ->", { steer, throttle, matchToken: matchTokenRef.current });
+            console.debug("[input] send ->", {
+              steer,
+              throttle,
+              matchToken: matchTokenRef.current,
+            });
           } catch (e) {}
 
           const response = await fetch("/api/game", {
