@@ -92,7 +92,9 @@ export async function POST(request: NextRequest) {
             const adopted = await adoptMatchFromToken(matchToken);
             adoptOk = !!adopted;
             try {
-              console.log(`[lobby][${instanceId}] adopted token locally -> ${adoptOk}`);
+              console.log(
+                `[lobby][${instanceId}] adopted token locally -> ${adoptOk}`
+              );
             } catch (e) {}
             // Save the initial authoritative snapshot so other workers can load it
             try {
@@ -149,7 +151,9 @@ export async function POST(request: NextRequest) {
             }
           }
           try {
-            console.log(`[lobby][${instanceId}] did not claim token, returning existing=${!!matchToken} (readRetryMs=${tried})`);
+            console.log(
+              `[lobby][${instanceId}] did not claim token, returning existing=${!!matchToken} (readRetryMs=${tried})`
+            );
           } catch (e) {}
           // Defensive: if the returned token is expired, release it and clear
           // the value so we don't hand out finished matches to late joiners.
@@ -199,6 +203,32 @@ export async function POST(request: NextRequest) {
 
     // Return lobby state
     const players = getRoomState();
+    // Also include the current canonical token (if any) and a best-effort
+    // hint about which backend is configured so operators can triage.
+    let currentCanonicalToken: string | null = null;
+    try {
+      currentCanonicalToken = (await getCurrentMatchToken()) || null;
+    } catch (e) {
+      currentCanonicalToken = null;
+    }
+
+    // Best-effort store backend hint
+    let storeBackend = "memory";
+    try {
+      if (process.env.REDIS_URL || process.env.REDIS_URI)
+        storeBackend = "redis";
+      else {
+        // try to detect Vercel KV availability
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const kv = require("@vercel/kv");
+          if (kv) storeBackend = "vercel-kv";
+        } catch (e) {
+          // leave as memory
+        }
+      }
+    } catch (e) {}
+
     return NextResponse.json({
       players: players.map((p) => ({
         id: p.id,
@@ -212,7 +242,12 @@ export async function POST(request: NextRequest) {
       claimOk,
       adoptOk,
       instanceId,
-      lastRedisConnectMs: typeof getLastRedisConnectMs === 'function' ? getLastRedisConnectMs() : null,
+      lastRedisConnectMs:
+        typeof getLastRedisConnectMs === "function"
+          ? getLastRedisConnectMs()
+          : null,
+      currentCanonicalToken,
+      storeBackend,
     });
   } catch (error) {
     console.error("Error in lobby:", error);
