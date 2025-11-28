@@ -15,6 +15,7 @@ import {
   getMatchEvents,
   getPowerUps,
   getServerFps,
+  getPlayerLogs,
   CAR_DESTROY_THRESHOLD,
 } from "@/lib/gameState";
 import {
@@ -248,7 +249,8 @@ export async function POST(request: NextRequest) {
       });
     } catch (e) {}
 
-    return NextResponse.json({
+    // Build the response payload
+    const resp: any = {
       players: serializedPlayers,
       gameState: gameStateRes.result,
       destructibles: destructiblesRes.result,
@@ -258,19 +260,66 @@ export async function POST(request: NextRequest) {
       events: eventsRes.result,
       powerUps: powerUpsRes.result,
       serverFps: serverFpsRes.result,
+      timing,
+      adoptOk,
       instanceId: getInstanceId(),
       matchToken: getMatchToken(),
       sharedToken,
-      adoptOk,
-      timing,
-      debugPlayer,
-    });
+      debugPlayer: null,
+    };
+
+    // Optionally augment a debug snapshot for a single player
+    if (body.debugPlayerId) {
+      try {
+        const found = players.find((p: any) => p.id === body.debugPlayerId) || null;
+        let ownerId: string | null = null;
+        try {
+          ownerId = await Promise.resolve(getCurrentMatchOwner());
+        } catch (e) {
+          ownerId = null;
+        }
+        const isOwner = ownerId === getInstanceId();
+        let roomInfo: any = null;
+        try {
+          const r = getRoom();
+          roomInfo = {
+            lastPhysicsUpdate: r.lastPhysicsUpdate || null,
+            periodicPhysicsRunning: !!r.periodicPhysicsHandle,
+            gameState: r.gameState,
+          };
+        } catch (e) {
+          roomInfo = null;
+        }
+        let playerLogs: string[] | null = null;
+        try {
+          playerLogs = getPlayerLogs(body.debugPlayerId as string, 50) || null;
+        } catch (e) {
+          playerLogs = null;
+        }
+        resp.debugPlayer = found
+          ? {
+              ...found,
+              __serverDebug: {
+                ownerId,
+                isOwner,
+                roomInfo,
+                playerLogs,
+              },
+            }
+          : null;
+        console.info("[api/game] debugPlayer ->", {
+          debugPlayerId: body.debugPlayerId,
+          snapshot: resp.debugPlayer,
+        });
+      } catch (e) {
+        // ignore debug augmentation errors
+      }
+    }
+
+    return NextResponse.json(resp);
   } catch (error) {
     console.error("Error in game state update:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 

@@ -27,6 +27,24 @@ export type PlayerCar = {
   }>;
 };
 
+// Simple per-player diagnostic log buffer (keeps recent server log messages per player)
+const perPlayerLogs: Map<string, string[]> = new Map();
+
+export function pushPlayerLog(playerId: string, msg: string) {
+  try {
+    const arr = perPlayerLogs.get(playerId) || [];
+    arr.push(`${Date.now()}:${msg}`);
+    // keep bounded
+    if (arr.length > 200) arr.splice(0, arr.length - 200);
+    perPlayerLogs.set(playerId, arr);
+  } catch (e) {}
+}
+
+export function getPlayerLogs(playerId: string, limit = 50) {
+  const arr = perPlayerLogs.get(playerId) || [];
+  return arr.slice(Math.max(0, arr.length - limit));
+}
+
 type DestructibleType =
   | "tree"
   | "building"
@@ -1733,6 +1751,12 @@ export function createOrUpdatePlayer(
         console.log(
           `[${INSTANCE_ID}] updatePlayer input -> ${playerId} steer=${steer} throttle=${throttle} (prev steer=${player.steer} prev throttle=${player.throttle})`
         );
+        try {
+          pushPlayerLog(
+            playerId,
+            `updatePlayer input -> steer=${steer} throttle=${throttle} (prev steer=${player.steer} prev throttle=${player.throttle})`
+          );
+        } catch (e) {}
       }
     } catch (e) {}
     player.steer = steer;
@@ -1920,6 +1944,12 @@ export function updatePhysics(): PlayerCar[] {
             console.log(
               `[${INSTANCE_ID}] physics -> ${player.id} throttle=${player.throttle} speed=${prevSpeed.toFixed(2)}->${player.speed.toFixed(2)}`
             );
+            try {
+              pushPlayerLog(
+                player.id,
+                `physics -> throttle=${player.throttle} speed=${prevSpeed.toFixed(2)}->${player.speed.toFixed(2)}`
+              );
+            } catch (e) {}
           }
         } catch (e) {}
       } catch (e) {}
