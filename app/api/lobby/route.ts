@@ -58,6 +58,10 @@ export async function POST(request: NextRequest) {
     // first receives it can adopt and initialize the canonical match.
     const currentState = getGameState();
     let matchToken: string | null = null;
+    // diagnostic flags to surface claim/adopt status to callers
+    let claimOk = false;
+    let adoptOk = false;
+    const instanceId = getInstanceId();
     if (
       (currentState === "lobby" || currentState === "finished") &&
       checkAllReady()
@@ -82,10 +86,12 @@ export async function POST(request: NextRequest) {
 
         if (claimed) {
           matchToken = token;
+          claimOk = true;
           try {
-            await adoptMatchFromToken(matchToken);
+            const adopted = await adoptMatchFromToken(matchToken);
+            adoptOk = !!adopted;
             try {
-              console.log(`[lobby][${iid}] adopted token locally`);
+              console.log(`[lobby][${instanceId}] adopted token locally -> ${adoptOk}`);
             } catch (e) {}
             // Save the initial authoritative snapshot so other workers can load it
             try {
@@ -123,6 +129,9 @@ export async function POST(request: NextRequest) {
         } else {
           // Another worker already claimed a token — return that one instead
           matchToken = (await getCurrentMatchToken()) || null;
+          try {
+            console.log(`[lobby][${instanceId}] did not claim token, returning existing=${!!matchToken}`);
+          } catch (e) {}
           // Defensive: if the returned token is expired, release it and clear
           // the value so we don't hand out finished matches to late joiners.
           try {
@@ -160,8 +169,12 @@ export async function POST(request: NextRequest) {
         console.warn("Error claiming match token, falling back:", e);
         matchToken = token;
         try {
-          await adoptMatchFromToken(matchToken);
+          const adopted = await adoptMatchFromToken(matchToken);
+          adoptOk = !!adopted;
         } catch (err) {}
+        try {
+          console.log(`[lobby][${instanceId}] fallback adopted -> ${adoptOk}`);
+        } catch (e) {}
       }
     }
 
@@ -176,6 +189,10 @@ export async function POST(request: NextRequest) {
       })),
       gameState: getGameState(),
       matchToken,
+      // diagnostic helpers for debugging prod issues
+      claimOk,
+      adoptOk,
+      instanceId,
     });
   } catch (error) {
     console.error("Error in lobby:", error);
