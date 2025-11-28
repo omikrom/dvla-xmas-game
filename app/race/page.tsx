@@ -528,7 +528,6 @@ function RaceClient() {
     { id: string; amount: number; message: string; createdAt: number }[]
   >([]);
   const [isMobile, setIsMobile] = useState(false);
-  const [showGameDebug, setShowGameDebug] = useState(false);
   const [collisionEffects, setCollisionEffects] = useState<
     Array<{
       id: string;
@@ -585,18 +584,7 @@ function RaceClient() {
     } catch (e) {}
   }, []);
 
-  useEffect(() => {
-    try {
-      const qs = new URLSearchParams(window.location.search);
-      const enabled =
-        qs.has("debug") ||
-        sessionStorage.getItem("enableGameDebug") === "1" ||
-        !!(window as any).__ENABLE_GAME_DEBUG__;
-      setShowGameDebug(Boolean(enabled));
-    } catch (e) {
-      // ignore
-    }
-  }, []);
+  // Debug panel is always mounted by default (no runtime guard)
   const carDamageRef = useRef<Map<string, number>>(new Map());
   const collisionCooldownRef = useRef<Map<string, number>>(new Map());
   const collisionSpeedRef = useRef<Map<string, number>>(new Map());
@@ -3181,12 +3169,10 @@ Cannot read properties of undefined (reading 'replace')
           setAcceleratorHeld={setAcceleratorHeld}
           setBrakeHeld={setBrakeHeld}
         />
-        {showGameDebug && (
-          <GameDebugPanel
-            initialPlayerId={playerId}
-            initialMatchToken={matchTokenRef.current || undefined}
-          />
-        )}
+        <GameDebugPanel
+          initialPlayerId={playerId}
+          initialMatchToken={matchTokenRef.current || undefined}
+        />
       </div>
     </main>
   );
