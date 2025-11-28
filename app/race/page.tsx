@@ -67,6 +67,7 @@ import RuntimeDiagnostics from "./components/RuntimeDiagnostics";
 import usePowerUps from "./hooks/usePowerUps";
 import useInitializePowerUps from "./hooks/useInitializePowerUps";
 import usePowerupVisuals from "./hooks/usePowerupVisuals";
+import GameDebugPanel from "../components/GameDebugPanel";
 // MapLoader removed: maps should be added as static data in code
 
 // CameraAspectUpdater extracted to ./components/CameraAspectUpdater
@@ -527,6 +528,7 @@ function RaceClient() {
     { id: string; amount: number; message: string; createdAt: number }[]
   >([]);
   const [isMobile, setIsMobile] = useState(false);
+  const [showGameDebug, setShowGameDebug] = useState(false);
   const [collisionEffects, setCollisionEffects] = useState<
     Array<{
       id: string;
@@ -581,6 +583,19 @@ function RaceClient() {
       const mt = sessionStorage.getItem("matchToken");
       if (mt) matchTokenRef.current = mt;
     } catch (e) {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      const qs = new URLSearchParams(window.location.search);
+      const enabled =
+        qs.has("debug") ||
+        sessionStorage.getItem("enableGameDebug") === "1" ||
+        !!(window as any).__ENABLE_GAME_DEBUG__;
+      setShowGameDebug(Boolean(enabled));
+    } catch (e) {
+      // ignore
+    }
   }, []);
   const carDamageRef = useRef<Map<string, number>>(new Map());
   const collisionCooldownRef = useRef<Map<string, number>>(new Map());
@@ -3166,6 +3181,12 @@ Cannot read properties of undefined (reading 'replace')
           setAcceleratorHeld={setAcceleratorHeld}
           setBrakeHeld={setBrakeHeld}
         />
+        {showGameDebug && (
+          <GameDebugPanel
+            initialPlayerId={playerId}
+            initialMatchToken={matchTokenRef.current || undefined}
+          />
+        )}
       </div>
     </main>
   );
