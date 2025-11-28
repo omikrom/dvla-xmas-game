@@ -92,7 +92,7 @@ export default function InterpolatedCar({
     // allow runtime overrides from the InterpTuner (window.__GAME_TUNER)
     const tuner =
       typeof window !== "undefined" ? (window as any).__GAME_TUNER || {} : {};
-    const defaultDelay = 285;
+    const defaultDelay = 220;
     const delayFromRef =
       interpolationDelayRef && typeof interpolationDelayRef.current === "number"
         ? interpolationDelayRef.current
@@ -143,7 +143,7 @@ export default function InterpolatedCar({
     // Avoid extrapolating beyond the last snapshot by clamping targetTime
     // to a small safety margin before the newest snapshot when possible.
     const SAFETY_MARGIN_MS =
-      typeof tuner.safetyMarginMs === "number" ? tuner.safetyMarginMs : 40;
+      typeof tuner.safetyMarginMs === "number" ? tuner.safetyMarginMs : 30;
     const lastSnap = snaps.length > 0 ? snaps[snaps.length - 1] : null;
     if (lastSnap && targetTime > lastSnap.ts - SAFETY_MARGIN_MS) {
       // clamp targetTime so it sits slightly behind last snapshot
@@ -253,11 +253,12 @@ export default function InterpolatedCar({
           // Accept tuner.extraPredict in seconds or milliseconds (ms>2 treated as ms)
           const rawExtraPredict =
             typeof tuner.extraPredict === "number" ? tuner.extraPredict : null;
-          const extraPredictSec = rawExtraPredict != null
-            ? rawExtraPredict > 2
-              ? rawExtraPredict / 1000
-              : rawExtraPredict
-            : Math.min(0.12, approxOneWay / 1000);
+          const extraPredictSec =
+            rawExtraPredict != null
+              ? rawExtraPredict > 2
+                ? rawExtraPredict / 1000
+                : rawExtraPredict
+              : Math.min(0.12, approxOneWay / 1000);
           const dt = Math.min(0.5, baseDt + extraPredictSec);
           sampledX = last.x + (last.vx || 0) * dt;
           sampledY = last.y + (last.vy || 0) * dt;
@@ -300,11 +301,11 @@ export default function InterpolatedCar({
     const TELEPORT_THRESHOLD =
       typeof tuner.teleportThreshold === "number"
         ? tuner.teleportThreshold
-        : 25;
+        : 30;
     const CORRECT_THRESHOLD =
-      typeof tuner.correctThreshold === "number" ? tuner.correctThreshold : 15;
+      typeof tuner.correctThreshold === "number" ? tuner.correctThreshold : 20;
     const CORRECTION_MS =
-      typeof tuner.correctionMs === "number" ? tuner.correctionMs : 83;
+      typeof tuner.correctionMs === "number" ? tuner.correctionMs : 60;
 
     // update target rotation early
     targetRot.current = sampledAngle;
@@ -359,20 +360,40 @@ export default function InterpolatedCar({
         typeof tuner.useSnapless === "boolean" ? tuner.useSnapless : true;
       if (useSnapless) {
         // Determine authoritative speed (units/sec) from last snapshot when available
-        const lastForSpeed = lastSnap || (snaps.length ? snaps[snaps.length - 1] : null);
-        const authVx = lastForSpeed && typeof lastForSpeed.vx === 'number' ? lastForSpeed.vx : 0;
-        const authVy = lastForSpeed && typeof lastForSpeed.vy === 'number' ? lastForSpeed.vy : 0;
+        const lastForSpeed =
+          lastSnap || (snaps.length ? snaps[snaps.length - 1] : null);
+        const authVx =
+          lastForSpeed && typeof lastForSpeed.vx === "number"
+            ? lastForSpeed.vx
+            : 0;
+        const authVy =
+          lastForSpeed && typeof lastForSpeed.vy === "number"
+            ? lastForSpeed.vy
+            : 0;
         const authSpeed = Math.hypot(authVx, authVy);
 
         // normalize extraPredict to seconds (accept ms or seconds)
-        const rawExtra = typeof tuner.extraPredict === 'number' ? tuner.extraPredict : null;
-        const extraSec = rawExtra != null ? (rawExtra > 2 ? rawExtra / 1000 : rawExtra) : Math.min(0.12, approxOneWay / 1000);
+        const rawExtra =
+          typeof tuner.extraPredict === "number" ? tuner.extraPredict : null;
+        const extraSec =
+          rawExtra != null
+            ? rawExtra > 2
+              ? rawExtra / 1000
+              : rawExtra
+            : Math.min(0.18, approxOneWay / 1000);
         const predictedLead = authSpeed * extraSec; // units
 
         // effective max offset should be at least tuned maxOffset but also cover predicted lead
-        const offsetSafety = typeof tuner.offsetSafetyFactor === 'number' ? tuner.offsetSafetyFactor : 1.25;
-        const configuredMaxOffset = typeof tuner.maxOffset === 'number' ? tuner.maxOffset : CORRECT_THRESHOLD;
-        const effectiveMaxOffset = Math.max(configuredMaxOffset, predictedLead * offsetSafety);
+        const offsetSafety =
+          typeof tuner.offsetSafetyFactor === "number"
+            ? tuner.offsetSafetyFactor
+            : 1.5;
+        const configuredMaxOffset =
+          typeof tuner.maxOffset === "number" ? tuner.maxOffset : 35;
+        const effectiveMaxOffset = Math.max(
+          configuredMaxOffset,
+          predictedLead * offsetSafety
+        );
         // Snapless offset-based correction (continuous exponential decay)
         // Initialize offset to preserve visual continuity if it's currently zero
         const offset = offsetRef.current;
@@ -390,13 +411,13 @@ export default function InterpolatedCar({
           auth.z = sampledY;
         }
         const authLambda =
-          typeof tuner.authLambda === "number" ? tuner.authLambda : 12;
+          typeof tuner.authLambda === "number" ? tuner.authLambda : 18;
         const authSmoothing = 1 - Math.exp(-delta * authLambda);
         auth.x += (sampledX - auth.x) * authSmoothing;
         auth.z += (sampledY - auth.z) * authSmoothing;
 
         const lambda =
-          typeof tuner.offsetLambda === "number" ? tuner.offsetLambda : 6;
+          typeof tuner.offsetLambda === "number" ? tuner.offsetLambda : 9;
         const smoothing = 1 - Math.exp(-delta * lambda);
 
         // Exponential decay of offset toward zero (frame-rate independent)
@@ -430,11 +451,14 @@ export default function InterpolatedCar({
           typeof tuner.maxMoveSpeed === "number"
             ? tuner.maxMoveSpeed
             : isMobile
-            ? 18
-            : 30;
+            ? 22
+            : 40;
         // Scale move speed based on authoritative object speed so faster cars
         // can be reconciled without excessive clamping.
-        const speedFactor = typeof tuner.moveSpeedFactor === 'number' ? tuner.moveSpeedFactor : 1.8;
+        const speedFactor =
+          typeof tuner.moveSpeedFactor === "number"
+            ? tuner.moveSpeedFactor
+            : 2.0;
         const effectiveBaseSpeed = Math.max(baseSpeed, authSpeed * speedFactor);
         // Adaptive reach time (ms) - how quickly we want to reach a large gap
         const reachMs =
