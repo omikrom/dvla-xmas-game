@@ -136,6 +136,82 @@ export default function GameDebugPanel({
     }
   }
 
+  async function autoDebugCollect() {
+    const targetId = debugPlayerId || playerId;
+    if (!targetId) {
+      setLastResponse({ error: "no playerId/debugPlayerId specified" });
+      return;
+    }
+    const rounds = 8;
+    const delayMs = 140;
+    const out: any = {
+      capturedAt: Date.now(),
+      playerId: targetId,
+      matchToken: matchToken || null,
+      clientSends: [] as any[],
+      responses: [] as any[],
+      windowDiags: (window as any).__GAME_DIAGS || null,
+    };
+    for (let i = 0; i < rounds; i++) {
+      const body = {
+        playerId: targetId,
+        name: name || "Player",
+        steer,
+        throttle,
+        matchToken: matchToken || undefined,
+        clientSendTs: Date.now(),
+        debugPlayerId: targetId,
+      };
+      out.clientSends.push(body);
+      try {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        if (simulateLatencyMs)
+          headers["x-simulate-latency-ms"] = String(simulateLatencyMs);
+        const res = await fetch("/api/game", {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
+        let json: any = null;
+        try {
+          json = await res.json();
+        } catch (e) {
+          json = { status: res.status, text: await res.text() };
+        }
+        out.responses.push({ ts: Date.now(), json });
+      } catch (e) {
+        out.responses.push({ ts: Date.now(), error: String(e) });
+      }
+      // small delay between rounds
+      await new Promise((res) => setTimeout(res, delayMs));
+    }
+
+    // try to collect server-side per-player logs from last response if present
+    try {
+      const last = out.responses[out.responses.length - 1];
+      const dbg =
+        last?.json?.debugPlayer ||
+        last?.json?.players?.find?.((p: any) => p.id === targetId) ||
+        null;
+      out.collectedPlayer = dbg;
+    } catch (e) {}
+
+    try {
+      const dump = JSON.stringify(out, null, 2);
+      setLastResponse(out);
+      try {
+        await navigator.clipboard.writeText(dump);
+        console.info("[debug panel] auto-debug copied to clipboard");
+      } catch (e) {
+        console.info("[debug panel] auto-debug prepared (clipboard failed)");
+      }
+    } catch (e) {
+      setLastResponse({ error: "failed to collect auto-debug" });
+    }
+  }
+
   function startPolling() {
     if (polling) return;
     setPolling(true);
@@ -301,6 +377,9 @@ export default function GameDebugPanel({
         </button>
         <button onClick={createAndRegisterLocalPlayer} style={{ flex: 1 }}>
           Create Local Player
+        </button>
+        <button onClick={autoDebugCollect} style={{ flex: 1 }}>
+          Auto Debug
         </button>
         <button
           onClick={polling ? stopPolling : startPolling}
