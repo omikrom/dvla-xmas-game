@@ -367,6 +367,39 @@ export default function InterpolatedCar({
         } catch (e) {}
       }
     } else {
+      const useSimpleInterp =
+        typeof tuner.useSimpleInterp === "boolean" ? tuner.useSimpleInterp : false;
+      if (useSimpleInterp) {
+        // Simple interpolation fallback: lerp toward the sampled authoritative
+        // position. This is less clever than the snapless offset approach but
+        // often produces smoother, predictable motion and helps isolate
+        // issues introduced by the more complex algorithm.
+        const targetX = sampledX;
+        const targetZ = sampledY;
+        const curX = groupRef.current.position.x;
+        const curZ = groupRef.current.position.z;
+        // frame-independent lerp alpha
+        const lerpAlpha = Math.min(1, 1 - Math.exp(-delta * 10));
+        const stepX = (targetX - curX) * lerpAlpha;
+        const stepZ = (targetZ - curZ) * lerpAlpha;
+        const stepLen = Math.hypot(stepX, stepZ);
+        const maxMoveSpeed = typeof tuner.maxMoveSpeed === "number" ? tuner.maxMoveSpeed : 40;
+        const maxMove = Math.max(0.001, maxMoveSpeed * delta);
+        let finalStepX = stepX;
+        let finalStepZ = stepZ;
+        if (stepLen > maxMove) {
+          const s = maxMove / stepLen;
+          finalStepX = stepX * s;
+          finalStepZ = stepZ * s;
+        }
+        groupRef.current.position.x = curX + finalStepX;
+        groupRef.current.position.z = curZ + finalStepZ;
+        groupRef.current.position.y = sampledZ;
+        positionsRef.current.set(car.id, {
+          x: groupRef.current.position.x,
+          y: groupRef.current.position.z,
+        });
+      } else {
       const useSnapless =
         typeof tuner.useSnapless === "boolean" ? tuner.useSnapless : true;
       if (useSnapless) {
@@ -551,6 +584,7 @@ export default function InterpolatedCar({
         groupRef.current.position.x = curX + finalStepX;
         groupRef.current.position.z = curZ + finalStepZ;
         groupRef.current.position.y = target.y;
+      }
       }
     }
 
