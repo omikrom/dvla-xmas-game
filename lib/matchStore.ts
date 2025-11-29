@@ -91,6 +91,15 @@ export async function claimMatchToken(
 ) {
   try {
     const r = await getRedisClient();
+    // If a REDIS_URL is configured but we failed to obtain a client,
+    // avoid falling back to in-memory claiming — return false so callers
+    // will retry reading the canonical token instead of creating a
+    // competing in-memory match (which causes duplicate matches).
+    const redisConfigured = !!(process.env.REDIS_URL || process.env.REDIS_URI);
+    if (!r && redisConfigured) {
+      console.warn("[matchStore] redis configured but unavailable; refusing to claim token to avoid split-brain");
+      return false;
+    }
     if (r) {
       try {
         const t0 = nowMs();

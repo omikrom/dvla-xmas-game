@@ -14,6 +14,9 @@ import {
   getDeliveries,
   getMatchEvents,
   getPowerUps,
+  ensureOwnerPeriodicTasks,
+  isPeriodicPhysicsRunning,
+  isPeriodicSnapshotRunning,
   getServerFps,
   CAR_DESTROY_THRESHOLD,
 } from "@/lib/gameState";
@@ -262,13 +265,31 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      console.info("[api/game] status ->", {
-        instanceId: getInstanceId(),
-        matchToken: getMatchToken(),
-        sharedToken,
-        adoptOk,
-        timing,
-      });
+      try {
+        const ownerId = await getCurrentMatchOwner();
+        const isOwner = ownerId === getInstanceId();
+        const periodicPhysics = isPeriodicPhysicsRunning();
+        const periodicSnapshot = isPeriodicSnapshotRunning();
+        console.info("[api/game] status ->", {
+          instanceId: getInstanceId(),
+          matchToken: getMatchToken(),
+          sharedToken,
+          adoptOk,
+          timing,
+          ownerId,
+          isOwner,
+          periodicPhysics,
+          periodicSnapshot,
+        });
+      } catch (e) {
+        console.info("[api/game] status ->", {
+          instanceId: getInstanceId(),
+          matchToken: getMatchToken(),
+          sharedToken,
+          adoptOk,
+          timing,
+        });
+      }
     } catch (e) {}
 
     return NextResponse.json({
@@ -286,6 +307,10 @@ export async function POST(request: NextRequest) {
       sharedToken,
       adoptOk,
       timing,
+      ownerId: await (async () => { try { return await getCurrentMatchOwner(); } catch (e) { return null; } })(),
+      isOwner: (await (async () => { try { return await getCurrentMatchOwner(); } catch (e) { return null; } })()) === getInstanceId(),
+      periodicPhysicsRunning: isPeriodicPhysicsRunning(),
+      periodicSnapshotRunning: isPeriodicSnapshotRunning(),
       debugPlayer,
     });
   } catch (error) {

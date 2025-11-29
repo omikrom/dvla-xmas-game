@@ -396,13 +396,16 @@ export async function adoptMatchFromToken(token?: string | null) {
           // (race between owner adopting and saving initial snapshot), poll
           // briefly for a snapshot to appear before falling back to local init.
           let snap: any = await Promise.resolve(getMatchSnapshot());
-          const maxWaitMs = 500;
-          const pollInterval = 120;
+          const redisConfigured = !!(process.env.REDIS_URL || process.env.REDIS_URI);
+          const maxWaitMs = redisConfigured ? 1200 : 500; // be more patient if Redis likely in use
+          const pollInterval = redisConfigured ? 200 : 120;
           let waited = 0;
           while (!snap && waited < maxWaitMs) {
+            // eslint-disable-next-line no-await-in-loop
             await new Promise((res) => setTimeout(res, pollInterval));
             waited += pollInterval;
             try {
+              // eslint-disable-next-line no-await-in-loop
               snap = await Promise.resolve(getMatchSnapshot());
             } catch (e) {
               snap = null;
@@ -694,6 +697,24 @@ export async function ensureOwnerPeriodicTasks() {
     }
 
     return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Diagnostic helpers for external code to check whether periodic tasks
+// are active on this instance. Useful for debugging multi-instance races.
+export function isPeriodicPhysicsRunning() {
+  try {
+    return !!room.periodicPhysicsHandle;
+  } catch (e) {
+    return false;
+  }
+}
+
+export function isPeriodicSnapshotRunning() {
+  try {
+    return !!room.periodicSnapshotHandle;
   } catch (e) {
     return false;
   }
