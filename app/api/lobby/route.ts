@@ -212,6 +212,11 @@ export async function POST(request: NextRequest) {
       currentCanonicalToken = null;
     }
 
+    // If this worker did not themselves claim the token, but a canonical
+    // token exists in the shared store, prefer returning that so clients
+    // receive a usable token regardless of which worker they polled.
+    const returnedMatchToken = matchToken || currentCanonicalToken;
+
     // Best-effort store backend hint
     let storeBackend = "memory";
     try {
@@ -237,7 +242,7 @@ export async function POST(request: NextRequest) {
         color: p.color,
       })),
       gameState: getGameState(),
-      matchToken,
+      matchToken: returnedMatchToken,
       // diagnostic helpers for debugging prod issues
       claimOk,
       adoptOk,
