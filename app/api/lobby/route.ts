@@ -49,19 +49,28 @@ export async function POST(request: NextRequest) {
     // We call `startRace()` dynamically (fire-and-forget) so the lobby
     // endpoint remains resilient and avoids circular import problems.
     try {
+      // Only start when all players are ready AND at least two players are
+      // present. This prevents a single owner from starting a match alone.
       if (checkAllReady()) {
         try {
-          // eslint-disable-next-line @typescript-eslint/no-var-requires
-          const gs = require("@/lib/gameState");
-          if (gs && typeof gs.startRace === "function") {
-            // fire-and-forget; startRace contains its own safety/claim logic
-            gs.startRace().catch((err: any) =>
-              console.warn("[lobby] startRace() failed:", err)
-            );
+          const playersNow = getRoomState();
+          if (playersNow.length >= 2) {
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const gs = require("@/lib/gameState");
+              if (gs && typeof gs.startRace === "function") {
+                // fire-and-forget; startRace contains its own safety/claim logic
+                gs.startRace().catch((err: any) =>
+                  console.warn("[lobby] startRace() failed:", err)
+                );
+              }
+            } catch (e) {
+              console.warn("[lobby] failed to call startRace():", e);
+            }
+          } else {
+            // not enough players yet; do nothing
           }
-        } catch (e) {
-          console.warn("[lobby] failed to call startRace():", e);
-        }
+        } catch (e) {}
       }
     } catch (e) {}
 

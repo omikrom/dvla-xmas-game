@@ -58,13 +58,24 @@ export default function InterpolatedCarSimple({
   const groupRef = useRef<THREE.Group | null>(null);
 
   // lightweight predicted position for the local player
-  const localPred = useRef({ x: car.x, y: car.y, angle: car.angle, z: car.z ?? 0.3, speed: car.speed ?? 0 });
+  const localPred = useRef({
+    x: car.x,
+    y: car.y,
+    angle: car.angle,
+    z: car.z ?? 0.3,
+    speed: car.speed ?? 0,
+  });
   // pending local inputs not yet acknowledged by server
   const pendingInputs = useRef<Array<any>>([]);
   const lastEnqueuedSeq = useRef<number | null>(null);
   const lastAckSeq = useRef<number | null>(null);
   const correction = useRef<any>(null);
-  const renderRef = useRef<{ x: number; y: number; z: number; angle: number } | null>(null);
+  const renderRef = useRef<{
+    x: number;
+    y: number;
+    z: number;
+    angle: number;
+  } | null>(null);
 
   // On mount snap to server position
   useEffect(() => {
@@ -91,26 +102,53 @@ export default function InterpolatedCarSimple({
       const inp = playerInputRef?.current;
       if (inp && typeof inp.seq === "number") {
         if (lastEnqueuedSeq.current !== inp.seq) {
-          pendingInputs.current.push({ seq: inp.seq, steer: inp.steer || 0, throttle: inp.throttle || 0 });
+          pendingInputs.current.push({
+            seq: inp.seq,
+            steer: inp.steer || 0,
+            throttle: inp.throttle || 0,
+          });
           lastEnqueuedSeq.current = inp.seq;
         }
       }
 
       // pick the most recent input to visualize immediately
-      const current = pendingInputs.current.length ? pendingInputs.current[pendingInputs.current.length - 1] : (playerInputRef?.current || { steer: 0, throttle: 0 });
+      const current = pendingInputs.current.length
+        ? pendingInputs.current[pendingInputs.current.length - 1]
+        : playerInputRef?.current || { steer: 0, throttle: 0 };
       const frameDt = Math.min(0.1, dt);
 
       // integrate locally (use shared constants for closer match)
-      if ((current.throttle || 0) > 0) localPred.current.speed += (current.throttle || 0) * BASE_ACCELERATION * frameDt;
-      else if ((current.throttle || 0) < 0) localPred.current.speed += (current.throttle || 0) * BASE_DECELERATION * frameDt;
+      if ((current.throttle || 0) > 0)
+        localPred.current.speed +=
+          (current.throttle || 0) * BASE_ACCELERATION * frameDt;
+      else if ((current.throttle || 0) < 0)
+        localPred.current.speed +=
+          (current.throttle || 0) * BASE_DECELERATION * frameDt;
       else {
-        if (localPred.current.speed > 0) localPred.current.speed = Math.max(0, localPred.current.speed - BASE_DECELERATION * frameDt);
-        else localPred.current.speed = Math.min(0, localPred.current.speed + BASE_DECELERATION * frameDt);
+        if (localPred.current.speed > 0)
+          localPred.current.speed = Math.max(
+            0,
+            localPred.current.speed - BASE_DECELERATION * frameDt
+          );
+        else
+          localPred.current.speed = Math.min(
+            0,
+            localPred.current.speed + BASE_DECELERATION * frameDt
+          );
       }
-      localPred.current.speed = Math.max(-BASE_MAX_SPEED, Math.min(BASE_MAX_SPEED, localPred.current.speed));
-      localPred.current.angle += (current.steer || 0) * BASE_TURN_SPEED * frameDt * getTurnFactor(localPred.current.speed, BASE_MAX_SPEED);
-      localPred.current.x += -Math.sin(localPred.current.angle) * localPred.current.speed * frameDt;
-      localPred.current.y += -Math.cos(localPred.current.angle) * localPred.current.speed * frameDt;
+      localPred.current.speed = Math.max(
+        -BASE_MAX_SPEED,
+        Math.min(BASE_MAX_SPEED, localPred.current.speed)
+      );
+      localPred.current.angle +=
+        (current.steer || 0) *
+        BASE_TURN_SPEED *
+        frameDt *
+        getTurnFactor(localPred.current.speed, BASE_MAX_SPEED);
+      localPred.current.x +=
+        -Math.sin(localPred.current.angle) * localPred.current.speed * frameDt;
+      localPred.current.y +=
+        -Math.cos(localPred.current.angle) * localPred.current.speed * frameDt;
 
       // apply correction smoothing (ease-out)
       if (correction.current) {
@@ -118,9 +156,15 @@ export default function InterpolatedCarSimple({
         const elapsed = nowMs - correction.current.start;
         const rawT = Math.min(1, elapsed / correction.current.duration);
         const easeT = 1 - Math.pow(1 - rawT, 2);
-        localPred.current.x = correction.current.from.x + (correction.current.to.x - correction.current.from.x) * easeT;
-        localPred.current.y = correction.current.from.y + (correction.current.to.y - correction.current.from.y) * easeT;
-        localPred.current.angle = correction.current.from.angle + (correction.current.to.angle - correction.current.from.angle) * easeT;
+        localPred.current.x =
+          correction.current.from.x +
+          (correction.current.to.x - correction.current.from.x) * easeT;
+        localPred.current.y =
+          correction.current.from.y +
+          (correction.current.to.y - correction.current.from.y) * easeT;
+        localPred.current.angle =
+          correction.current.from.angle +
+          (correction.current.to.angle - correction.current.from.angle) * easeT;
         localPred.current.speed = correction.current.to.speed;
         if (rawT >= 1) correction.current = null;
       }
@@ -133,12 +177,22 @@ export default function InterpolatedCarSimple({
       positionsRef.current.set(car.id, { x: g.position.x, y: g.position.z });
 
       // reconciliation when server ack arrives
-      const serverAck = typeof car?.lastProcessedInput === "number" ? car.lastProcessedInput : null;
+      const serverAck =
+        typeof car?.lastProcessedInput === "number"
+          ? car.lastProcessedInput
+          : null;
       if (serverAck !== null && serverAck !== lastAckSeq.current) {
-        pendingInputs.current = pendingInputs.current.filter((p) => p.seq > serverAck);
+        pendingInputs.current = pendingInputs.current.filter(
+          (p) => p.seq > serverAck
+        );
         lastAckSeq.current = serverAck;
 
-        let reconciled = { x: car.x, y: car.y, angle: car.angle, speed: car.speed ?? 0 };
+        let reconciled = {
+          x: car.x,
+          y: car.y,
+          angle: car.angle,
+          speed: car.speed ?? 0,
+        };
         const TICK = SERVER_PERIODIC_PHYSICS_MS / 1000;
         const SUBSTEPS = CLIENT_REPLAY_SUBSTEPS || 4;
         for (const p of pendingInputs.current) {
@@ -153,17 +207,38 @@ export default function InterpolatedCarSimple({
         const dist = Math.sqrt(dx * dx + dy * dy);
         const bigDist = CLIENT_BIG_CORRECTION_DIST || 1.5;
         if (dist > bigDist) {
-          const dur = Math.min(CLIENT_BIG_CORRECTION_MAX_MS || 300, Math.max(80, Math.round(dist * 120)));
+          const dur = Math.min(
+            CLIENT_BIG_CORRECTION_MAX_MS || 300,
+            Math.max(80, Math.round(dist * 120))
+          );
           correction.current = {
-            from: { x: localPred.current.x, y: localPred.current.y, angle: localPred.current.angle },
-            to: { x: reconciled.x, y: reconciled.y, angle: reconciled.angle, speed: reconciled.speed },
+            from: {
+              x: localPred.current.x,
+              y: localPred.current.y,
+              angle: localPred.current.angle,
+            },
+            to: {
+              x: reconciled.x,
+              y: reconciled.y,
+              angle: reconciled.angle,
+              speed: reconciled.speed,
+            },
             start: Date.now(),
             duration: dur,
           };
         } else {
           correction.current = {
-            from: { x: localPred.current.x, y: localPred.current.y, angle: localPred.current.angle },
-            to: { x: reconciled.x, y: reconciled.y, angle: reconciled.angle, speed: reconciled.speed },
+            from: {
+              x: localPred.current.x,
+              y: localPred.current.y,
+              angle: localPred.current.angle,
+            },
+            to: {
+              x: reconciled.x,
+              y: reconciled.y,
+              angle: reconciled.angle,
+              speed: reconciled.speed,
+            },
             start: Date.now(),
             duration: CLIENT_CORRECTION_DURATION_MS,
           };
@@ -177,7 +252,8 @@ export default function InterpolatedCarSimple({
     const snaps: any[] = snapshotsRef?.current?.get(car?.id) || [];
     if (snaps.length >= 2) {
       const nowTs = Date.now();
-      const delay = (interpolationDelayRef && interpolationDelayRef.current) || 120;
+      const delay =
+        (interpolationDelayRef && interpolationDelayRef.current) || 120;
       const targetTime = nowTs - delay;
       let i = 0;
       while (i < snaps.length - 1 && snaps[i + 1].ts < targetTime) i++;
@@ -187,9 +263,13 @@ export default function InterpolatedCarSimple({
       const t = Math.min(1, Math.max(0, (targetTime - a.ts) / span));
 
       const lastSnap = snaps[snaps.length - 1];
-      let targetPos: { x: number; y: number; z: number; angle: number } | null = null;
+      let targetPos: { x: number; y: number; z: number; angle: number } | null =
+        null;
       if (targetTime > lastSnap.ts) {
-        const dtMs = Math.min(CLIENT_MAX_EXTRAPOLATION_MS, targetTime - lastSnap.ts);
+        const dtMs = Math.min(
+          CLIENT_MAX_EXTRAPOLATION_MS,
+          targetTime - lastSnap.ts
+        );
         const dtSec = dtMs / 1000;
         const speed = lastSnap.speed ?? 0;
         const angle = lastSnap.angle ?? 0;
@@ -220,17 +300,22 @@ export default function InterpolatedCarSimple({
         const mScale = spanSec;
         const ma = { x: va.x * mScale, y: va.y * mScale };
         const mb = { x: vb.x * mScale, y: vb.y * mScale };
-        
+
         const px = h00 * a.x + h10 * ma.x + h01 * b.x + h11 * mb.x;
         const pz = h00 * a.y + h10 * ma.y + h01 * b.y + h11 * mb.y;
-        const py = (a.z ?? GROUND_HEIGHT) + ((b.z ?? GROUND_HEIGHT) - (a.z ?? GROUND_HEIGHT)) * tt;
-        const pang = typeof a.angle === "number" && typeof b.angle === "number" ? (() => {
-          let d = b.angle - a.angle;
-          if (d > Math.PI) d -= Math.PI * 2;
-          if (d < -Math.PI) d += Math.PI * 2;
-          const eased = 1 - Math.pow(1 - tt, 2);
-          return a.angle + d * eased;
-        })() : car.angle;
+        const py =
+          (a.z ?? GROUND_HEIGHT) +
+          ((b.z ?? GROUND_HEIGHT) - (a.z ?? GROUND_HEIGHT)) * tt;
+        const pang =
+          typeof a.angle === "number" && typeof b.angle === "number"
+            ? (() => {
+                let d = b.angle - a.angle;
+                if (d > Math.PI) d -= Math.PI * 2;
+                if (d < -Math.PI) d += Math.PI * 2;
+                const eased = 1 - Math.pow(1 - tt, 2);
+                return a.angle + d * eased;
+              })()
+            : car.angle;
         targetPos = { x: px, y: pz, z: py, angle: pang };
       }
 
@@ -238,7 +323,13 @@ export default function InterpolatedCarSimple({
       const tau = (CLIENT_POS_SMOOTH_TAU_MS || 80) / 1000;
       const alpha = 1 - Math.exp(-dt / Math.max(1e-6, tau));
       if (targetPos) {
-        if (!renderRef.current) renderRef.current = { x: targetPos.x, y: targetPos.y, z: targetPos.z, angle: targetPos.angle };
+        if (!renderRef.current)
+          renderRef.current = {
+            x: targetPos.x,
+            y: targetPos.y,
+            z: targetPos.z,
+            angle: targetPos.angle,
+          };
         else {
           renderRef.current.x += (targetPos.x - renderRef.current.x) * alpha;
           renderRef.current.y += (targetPos.y - renderRef.current.y) * alpha;
@@ -263,7 +354,9 @@ export default function InterpolatedCarSimple({
     positionsRef.current.set(car.id, { x: g.position.x, y: g.position.z });
   });
 
-  const speedActive = !!car?.activePowerUps?.some((p: any) => p.type === "speed" && (p.expiresAt ?? 0) > Date.now());
+  const speedActive = !!car?.activePowerUps?.some(
+    (p: any) => p.type === "speed" && (p.expiresAt ?? 0) > Date.now()
+  );
 
   return (
     <group ref={groupRef}>

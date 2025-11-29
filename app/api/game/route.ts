@@ -307,8 +307,21 @@ export async function POST(request: NextRequest) {
       sharedToken,
       adoptOk,
       timing,
-      ownerId: await (async () => { try { return await getCurrentMatchOwner(); } catch (e) { return null; } })(),
-      isOwner: (await (async () => { try { return await getCurrentMatchOwner(); } catch (e) { return null; } })()) === getInstanceId(),
+      ownerId: await (async () => {
+        try {
+          return await getCurrentMatchOwner();
+        } catch (e) {
+          return null;
+        }
+      })(),
+      isOwner:
+        (await (async () => {
+          try {
+            return await getCurrentMatchOwner();
+          } catch (e) {
+            return null;
+          }
+        })()) === getInstanceId(),
       periodicPhysicsRunning: isPeriodicPhysicsRunning(),
       periodicSnapshotRunning: isPeriodicSnapshotRunning(),
       debugPlayer,

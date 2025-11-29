@@ -85,7 +85,11 @@ export default function InterpolatedCarPredicted({
       const stepSec = SERVER_TICK_MS / 1000;
       while (remaining > 1e-6) {
         const step = Math.min(remaining, stepSec);
-        reconciled = simulate(reconciled, { steer: input.steer, throttle: input.throttle, dt: step });
+        reconciled = simulate(reconciled, {
+          steer: input.steer,
+          throttle: input.throttle,
+          dt: step,
+        });
         remaining -= step;
       }
     }
@@ -93,7 +97,10 @@ export default function InterpolatedCarPredicted({
     // compute correction (don't snap immediately to avoid visible jitter)
     const dx = reconciled.x - predicted.current.x;
     const dy = reconciled.y - predicted.current.y;
-    const dAng = ((reconciled.angle - predicted.current.angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    const dAng =
+      ((reconciled.angle - predicted.current.angle + Math.PI * 3) %
+        (Math.PI * 2)) -
+      Math.PI;
     const dist = Math.hypot(dx, dy);
 
     // store authoritative for reference
@@ -117,21 +124,53 @@ export default function InterpolatedCarPredicted({
     // debug: log authoritative vs predicted vs reconciled and pending seqs
     try {
       const pendingSeqs = pendingInputs.current.map((p) => p.seq);
-      console.info("[recon] ack=", car.lastProcessedInput, "pending(before->after)=", beforeLen, "->", afterLen, {
-        authoritative: { x: newAuthoritative.x.toFixed(3), y: newAuthoritative.y.toFixed(3), angle: newAuthoritative.angle.toFixed(3) },
-        predicted: { x: predicted.current.x.toFixed(3), y: predicted.current.y.toFixed(3), angle: predicted.current.angle.toFixed(3) },
-        reconciled: { x: reconciled.x.toFixed(3), y: reconciled.y.toFixed(3), angle: reconciled.angle.toFixed(3) },
-        pendingSeqs,
-        dist: dist.toFixed(3),
-      });
+      console.info(
+        "[recon] ack=",
+        car.lastProcessedInput,
+        "pending(before->after)=",
+        beforeLen,
+        "->",
+        afterLen,
+        {
+          authoritative: {
+            x: newAuthoritative.x.toFixed(3),
+            y: newAuthoritative.y.toFixed(3),
+            angle: newAuthoritative.angle.toFixed(3),
+          },
+          predicted: {
+            x: predicted.current.x.toFixed(3),
+            y: predicted.current.y.toFixed(3),
+            angle: predicted.current.angle.toFixed(3),
+          },
+          reconciled: {
+            x: reconciled.x.toFixed(3),
+            y: reconciled.y.toFixed(3),
+            angle: reconciled.angle.toFixed(3),
+          },
+          pendingSeqs,
+          dist: dist.toFixed(3),
+        }
+      );
     } catch (e) {}
-  }, [car?.x, car?.y, car?.z, car?.angle, car?.speed, car?.damage, car?.lastProcessedInput]);
+  }, [
+    car?.x,
+    car?.y,
+    car?.z,
+    car?.angle,
+    car?.speed,
+    car?.damage,
+    car?.lastProcessedInput,
+  ]);
 
   // initial snap
   useEffect(() => {
     const g = groupRef.current;
     if (!g) return;
-    g.position.set(predicted.current.x, predicted.current.z, predicted.current.y);
+    g.position.set(
+      predicted.current.x,
+      predicted.current.z,
+      predicted.current.y
+    );
     g.rotation.y = predicted.current.angle;
   }, []);
 
@@ -144,8 +183,11 @@ export default function InterpolatedCarPredicted({
     if (isLocal && playerInputRef?.current) {
       // prefer seq supplied by the page (shared ref) so server and client
       // use the same input sequence numbers; fall back to local seqRef
-      const suppliedSeq = (playerInputRef.current as any).seq as number | undefined;
-      const seq = typeof suppliedSeq === "number" ? suppliedSeq : ++seqRef.current;
+      const suppliedSeq = (playerInputRef.current as any).seq as
+        | number
+        | undefined;
+      const seq =
+        typeof suppliedSeq === "number" ? suppliedSeq : ++seqRef.current;
 
       // build input
       const input: InputFrame = {
@@ -165,7 +207,11 @@ export default function InterpolatedCarPredicted({
           "[pred] enqueue ->",
           input.seq,
           { steer: input.steer, throttle: input.throttle, dt: input.dt },
-          { px: predicted.current.x.toFixed(3), py: predicted.current.y.toFixed(3), angle: predicted.current.angle.toFixed(3) }
+          {
+            px: predicted.current.x.toFixed(3),
+            py: predicted.current.y.toFixed(3),
+            angle: predicted.current.angle.toFixed(3),
+          }
         );
       } catch (e) {}
 
@@ -175,14 +221,19 @@ export default function InterpolatedCarPredicted({
       g.position.y = predicted.current.z;
       g.rotation.y = predicted.current.angle;
 
-      positionsRef.current.set(car.id, { x: predicted.current.x, y: predicted.current.y });
+      positionsRef.current.set(car.id, {
+        x: predicted.current.x,
+        y: predicted.current.y,
+      });
     } else {
       // fallback to snapshots interpolation for non-local
       const snaps: any[] = snapshotsRef.current.get(car?.id) || [];
       if (snaps.length >= 2) {
         const now = Date.now();
         const targetTime = now - 120;
-        let idx = snaps.findIndex((s, i) => s.ts <= targetTime && snaps[i + 1]?.ts >= targetTime);
+        let idx = snaps.findIndex(
+          (s, i) => s.ts <= targetTime && snaps[i + 1]?.ts >= targetTime
+        );
         if (idx !== -1) {
           const a = snaps[idx];
           const b = snaps[idx + 1];
@@ -190,18 +241,28 @@ export default function InterpolatedCarPredicted({
           g.position.x = a.x + (b.x - a.x) * t;
           g.position.z = a.y + (b.y - a.y) * t;
           g.position.y = (a.z || 0.3) * (1 - t) + (b.z || 0.3) * t;
-          const diff = ((b.angle - a.angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+          const diff =
+            ((b.angle - a.angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
           g.rotation.y = a.angle + diff * t;
         } else {
           const last = snaps[snaps.length - 1];
-          g.position.x = last.x; g.position.z = last.y; g.position.y = last.z ?? 0.3; g.rotation.y = last.angle;
+          g.position.x = last.x;
+          g.position.z = last.y;
+          g.position.y = last.z ?? 0.3;
+          g.rotation.y = last.angle;
         }
       } else if (snaps.length === 1) {
         const s = snaps[0];
-        g.position.x = s.x; g.position.z = s.y; g.position.y = s.z ?? 0.3; g.rotation.y = s.angle;
+        g.position.x = s.x;
+        g.position.z = s.y;
+        g.position.y = s.z ?? 0.3;
+        g.rotation.y = s.angle;
       } else {
         // no snapshots: snap to server props
-        g.position.x = car.x; g.position.z = car.y; g.position.y = car.z ?? 0.3; g.rotation.y = car.angle;
+        g.position.x = car.x;
+        g.position.z = car.y;
+        g.position.y = car.z ?? 0.3;
+        g.rotation.y = car.angle;
       }
       positionsRef.current.set(car.id, { x: g.position.x, y: g.position.z });
     }
@@ -234,7 +295,9 @@ export default function InterpolatedCarPredicted({
     to: any;
   } | null>(null);
 
-  const speedActive = !!car?.activePowerUps?.some((p: any) => p.type === "speed" && (p.expiresAt ?? 0) > Date.now());
+  const speedActive = !!car?.activePowerUps?.some(
+    (p: any) => p.type === "speed" && (p.expiresAt ?? 0) > Date.now()
+  );
 
   return (
     <group ref={groupRef}>
@@ -245,7 +308,10 @@ export default function InterpolatedCarPredicted({
 }
 
 // simulate one input frame — client-side prediction using same tuning as server
-function simulate(state: any, input: InputFrame | { steer: number; throttle: number; dt?: number }) {
+function simulate(
+  state: any,
+  input: InputFrame | { steer: number; throttle: number; dt?: number }
+) {
   const dt = (input as any).dt ?? 1 / 60;
   const steer = (input as any).steer ?? 0;
   const throttle = (input as any).throttle ?? 0;

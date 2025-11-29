@@ -97,7 +97,9 @@ export async function claimMatchToken(
     // competing in-memory match (which causes duplicate matches).
     const redisConfigured = !!(process.env.REDIS_URL || process.env.REDIS_URI);
     if (!r && redisConfigured) {
-      console.warn("[matchStore] redis configured but unavailable; refusing to claim token to avoid split-brain");
+      console.warn(
+        "[matchStore] redis configured but unavailable; refusing to claim token to avoid split-brain"
+      );
       return false;
     }
     if (r) {
@@ -188,7 +190,8 @@ export function getLastRedisConnectMs() {
 export async function getCurrentMatchToken() {
   // Return cached value if fresh
   const now = Date.now();
-  if (cachedMatchToken && now - cachedMatchFetchedAt < LOCAL_CACHE_MS) return cachedMatchToken;
+  if (cachedMatchToken && now - cachedMatchFetchedAt < LOCAL_CACHE_MS)
+    return cachedMatchToken;
 
   try {
     const r = await getRedisClient();
@@ -197,7 +200,11 @@ export async function getCurrentMatchToken() {
         const t0 = nowMs();
         // Use MGET to fetch token/owner/snapshot in one round-trip and populate cache
         if (typeof r.mGet === "function") {
-          const [token] = await r.mGet([KEY, `${KEY}:owner`, `${KEY}:snapshot`]);
+          const [token] = await r.mGet([
+            KEY,
+            `${KEY}:owner`,
+            `${KEY}:snapshot`,
+          ]);
           const dt = nowMs() - t0;
           if (dt > 10) console.log(`[matchStore] redis MGET took ${dt}ms`);
           cachedMatchToken = token || null;
@@ -241,7 +248,8 @@ export async function getCurrentMatchToken() {
 
 export async function getCurrentMatchOwner() {
   const now = Date.now();
-  if (cachedMatchOwner && now - cachedMatchFetchedAt < LOCAL_CACHE_MS) return cachedMatchOwner;
+  if (cachedMatchOwner && now - cachedMatchFetchedAt < LOCAL_CACHE_MS)
+    return cachedMatchOwner;
 
   try {
     const r = await getRedisClient();
@@ -249,9 +257,14 @@ export async function getCurrentMatchOwner() {
       try {
         const t0 = nowMs();
         if (typeof r.mGet === "function") {
-          const [, owner] = await r.mGet([KEY, `${KEY}:owner`, `${KEY}:snapshot`]);
+          const [, owner] = await r.mGet([
+            KEY,
+            `${KEY}:owner`,
+            `${KEY}:snapshot`,
+          ]);
           const dt = nowMs() - t0;
-          if (dt > 10) console.log(`[matchStore] redis MGET owner+token took ${dt}ms`);
+          if (dt > 10)
+            console.log(`[matchStore] redis MGET owner+token took ${dt}ms`);
           cachedMatchOwner = owner || null;
           cachedMatchFetchedAt = Date.now();
           return cachedMatchOwner;
@@ -331,7 +344,8 @@ export async function saveMatchSnapshot(
 
 export async function getMatchSnapshot() {
   const now = Date.now();
-  if (cachedMatchSnapshot && now - cachedMatchFetchedAt < LOCAL_CACHE_MS) return cachedMatchSnapshot;
+  if (cachedMatchSnapshot && now - cachedMatchFetchedAt < LOCAL_CACHE_MS)
+    return cachedMatchSnapshot;
 
   try {
     const r = await getRedisClient();
@@ -339,16 +353,22 @@ export async function getMatchSnapshot() {
       try {
         const t0 = nowMs();
         if (typeof r.mGet === "function") {
-          const [, , snap] = await r.mGet([KEY, `${KEY}:owner`, `${KEY}:snapshot`]);
+          const [, , snap] = await r.mGet([
+            KEY,
+            `${KEY}:owner`,
+            `${KEY}:snapshot`,
+          ]);
           const dt = nowMs() - t0;
-          if (dt > 10) console.log(`[matchStore] redis MGET snapshot took ${dt}ms`);
+          if (dt > 10)
+            console.log(`[matchStore] redis MGET snapshot took ${dt}ms`);
           cachedMatchSnapshot = snap ? JSON.parse(snap) : null;
           cachedMatchFetchedAt = Date.now();
           return cachedMatchSnapshot;
         }
         const val = await r.get(`${KEY}:snapshot`);
         const dt = nowMs() - t0;
-        if (dt > 10) console.log(`[matchStore] redis GET snapshot took ${dt}ms`);
+        if (dt > 10)
+          console.log(`[matchStore] redis GET snapshot took ${dt}ms`);
         cachedMatchSnapshot = val ? JSON.parse(val) : null;
         cachedMatchFetchedAt = Date.now();
         return cachedMatchSnapshot;

@@ -396,7 +396,9 @@ export async function adoptMatchFromToken(token?: string | null) {
           // (race between owner adopting and saving initial snapshot), poll
           // briefly for a snapshot to appear before falling back to local init.
           let snap: any = await Promise.resolve(getMatchSnapshot());
-          const redisConfigured = !!(process.env.REDIS_URL || process.env.REDIS_URI);
+          const redisConfigured = !!(
+            process.env.REDIS_URL || process.env.REDIS_URI
+          );
           const maxWaitMs = redisConfigured ? 1200 : 500; // be more patient if Redis likely in use
           const pollInterval = redisConfigured ? 200 : 120;
           let waited = 0;

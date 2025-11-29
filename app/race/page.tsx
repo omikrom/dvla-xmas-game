@@ -3147,11 +3147,11 @@ Cannot read properties of undefined (reading 'replace')
         )}
 
         {/* Debug Log Panel (extracted) */}
-        <DebugPanel
+        {/* <DebugPanel
           debugLogs={debugLogs}
           onClear={() => setDebugLogs([])}
           visible={debugVisible && !isMobile}
-        />
+        /> */}
 
         {/* Interpolation tuner removed - using stored defaults in InterpolatedCar */}
 
