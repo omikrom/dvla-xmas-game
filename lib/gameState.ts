@@ -1709,7 +1709,11 @@ export async function startRace() {
     try {
       // Save synchronously (fire-and-warn on error). This reduces races when
       // non-owner workers attempt to adopt immediately after a token appears.
-      await saveMatchSnapshot((room as any).currentMatchToken, initialSnapshot, room.matchDurationMs).catch((err: any) => {
+      await saveMatchSnapshot(
+        (room as any).currentMatchToken,
+        initialSnapshot,
+        room.matchDurationMs
+      ).catch((err: any) => {
         console.warn("[GameState] initial saveMatchSnapshot failed:", err);
       });
       try {
