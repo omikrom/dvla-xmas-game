@@ -19,6 +19,8 @@ export type PlayerCar = {
   destroyed?: boolean;
   score?: number;
   carryingDeliveryId?: string;
+  // last input sequence number the server has processed for this player
+  lastProcessedInput?: number | null;
   activePowerUps?: Array<{
     type: string;
     activatedAt: number;
@@ -1699,7 +1701,8 @@ export function createOrUpdatePlayer(
   name: string,
   steer: number,
   throttle: number,
-  lastKnown?: { lastX?: number; lastY?: number; lastAngle?: number }
+  lastKnown?: { lastX?: number; lastY?: number; lastAngle?: number },
+  clientSeq?: number | null
 ): PlayerCar {
   const currentRoom = getRoom();
 
@@ -1762,6 +1765,12 @@ export function createOrUpdatePlayer(
     player.steer = steer;
     player.throttle = throttle;
     player.lastUpdate = Date.now();
+    // Acknowledge client's last sent sequence number so client can reconcile
+    if (typeof clientSeq === "number") {
+      try {
+        player.lastProcessedInput = clientSeq;
+      } catch (e) {}
+    }
     return player;
   }
 }

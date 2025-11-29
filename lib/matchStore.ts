@@ -11,6 +11,12 @@ let inMemoryExpiresAt = 0;
 let lastRedisConnectMs: number | null = null;
 let inMemoryOwner: string | null = null;
 let inMemorySnapshot: string | null = null;
+// Short-lived in-process cache to reduce Redis round-trips
+let cachedMatchToken: string | null = null;
+let cachedMatchOwner: string | null = null;
+let cachedMatchSnapshot: any = null;
+let cachedMatchFetchedAt = 0;
+const LOCAL_CACHE_MS = Number(process.env.MATCHSTORE_CACHE_MS || 250);
 
 function nowMs() {
   try {
@@ -99,6 +105,10 @@ export async function claimMatchToken(
               console.warn("[matchStore] redis set owner failed", String(err));
             }
           }
+          // update local cache on successful claim
+          cachedMatchToken = token;
+          cachedMatchOwner = ownerId || null;
+          cachedMatchFetchedAt = Date.now();
         }
         return res === "OK";
       } catch (e) {
@@ -130,6 +140,10 @@ export async function claimMatchToken(
             console.warn("[matchStore] KV set owner failed", String(err));
           }
         }
+        // update local cache on successful claim
+        cachedMatchToken = token;
+        cachedMatchOwner = ownerId || null;
+        cachedMatchFetchedAt = Date.now();
         return true;
       }
       try {
@@ -152,6 +166,9 @@ export async function claimMatchToken(
   inMemoryToken = token;
   if (ownerId) inMemoryOwner = ownerId;
   inMemoryExpiresAt = now + ttlMs + 60000;
+  cachedMatchToken = token;
+  cachedMatchOwner = ownerId || null;
+  cachedMatchFetchedAt = Date.now();
   return true;
 }
 
@@ -160,15 +177,31 @@ export function getLastRedisConnectMs() {
 }
 
 export async function getCurrentMatchToken() {
+  // Return cached value if fresh
+  const now = Date.now();
+  if (cachedMatchToken && now - cachedMatchFetchedAt < LOCAL_CACHE_MS) return cachedMatchToken;
+
   try {
     const r = await getRedisClient();
     if (r) {
       try {
         const t0 = nowMs();
+        // Use MGET to fetch token/owner/snapshot in one round-trip and populate cache
+        if (typeof r.mGet === "function") {
+          const [token] = await r.mGet([KEY, `${KEY}:owner`, `${KEY}:snapshot`]);
+          const dt = nowMs() - t0;
+          if (dt > 10) console.log(`[matchStore] redis MGET took ${dt}ms`);
+          cachedMatchToken = token || null;
+          cachedMatchFetchedAt = Date.now();
+          return cachedMatchToken;
+        }
+        // Fallback to single GET if mGet isn't available
         const val = await r.get(KEY);
         const dt = nowMs() - t0;
         if (dt > 10) console.log(`[matchStore] redis GET took ${dt}ms`);
-        return val || null;
+        cachedMatchToken = val || null;
+        cachedMatchFetchedAt = Date.now();
+        return cachedMatchToken;
       } catch (e) {
         console.warn("[matchStore] redis get failed", String(e));
       }
@@ -180,28 +213,46 @@ export async function getCurrentMatchToken() {
     if (kv) {
       try {
         const val = await kvClient.get(KEY);
-        return val || null;
+        cachedMatchToken = val || null;
+        cachedMatchFetchedAt = Date.now();
+        return cachedMatchToken;
       } catch (e) {
         console.warn("[matchStore] KV read failed", String(e));
       }
     }
   } catch (e) {}
 
-  const now = Date.now();
-  if (inMemoryToken && inMemoryExpiresAt > now) return inMemoryToken;
+  if (inMemoryToken && inMemoryExpiresAt > now) {
+    cachedMatchToken = inMemoryToken;
+    cachedMatchFetchedAt = Date.now();
+    return inMemoryToken;
+  }
   return null;
 }
 
 export async function getCurrentMatchOwner() {
+  const now = Date.now();
+  if (cachedMatchOwner && now - cachedMatchFetchedAt < LOCAL_CACHE_MS) return cachedMatchOwner;
+
   try {
     const r = await getRedisClient();
     if (r) {
       try {
         const t0 = nowMs();
+        if (typeof r.mGet === "function") {
+          const [, owner] = await r.mGet([KEY, `${KEY}:owner`, `${KEY}:snapshot`]);
+          const dt = nowMs() - t0;
+          if (dt > 10) console.log(`[matchStore] redis MGET owner+token took ${dt}ms`);
+          cachedMatchOwner = owner || null;
+          cachedMatchFetchedAt = Date.now();
+          return cachedMatchOwner;
+        }
         const val = await r.get(`${KEY}:owner`);
         const dt = nowMs() - t0;
         if (dt > 10) console.log(`[matchStore] redis GET owner took ${dt}ms`);
-        return val || null;
+        cachedMatchOwner = val || null;
+        cachedMatchFetchedAt = Date.now();
+        return cachedMatchOwner;
       } catch (e) {
         console.warn("[matchStore] redis get owner failed", String(e));
       }
@@ -213,13 +264,17 @@ export async function getCurrentMatchOwner() {
     if (kv) {
       try {
         const val = await kvClient.get(`${KEY}:owner`);
-        return val || null;
+        cachedMatchOwner = val || null;
+        cachedMatchFetchedAt = Date.now();
+        return cachedMatchOwner;
       } catch (e) {
         console.warn("[matchStore] KV read owner failed", String(e));
       }
     }
   } catch (e) {}
 
+  cachedMatchOwner = inMemoryOwner;
+  cachedMatchFetchedAt = Date.now();
   return inMemoryOwner;
 }
 
@@ -234,6 +289,9 @@ export async function saveMatchSnapshot(
     if (r) {
       try {
         await r.set(`${KEY}:snapshot`, json, { PX: ttlMs + 60000 });
+        // update local cache after write
+        cachedMatchSnapshot = snapshot;
+        cachedMatchFetchedAt = Date.now();
         return true;
       } catch (e) {
         console.warn("[matchStore] redis set snapshot failed", String(e));
@@ -257,20 +315,34 @@ export async function saveMatchSnapshot(
   } catch (e) {}
 
   inMemorySnapshot = json;
+  cachedMatchSnapshot = snapshot;
+  cachedMatchFetchedAt = Date.now();
   return true;
 }
 
 export async function getMatchSnapshot() {
+  const now = Date.now();
+  if (cachedMatchSnapshot && now - cachedMatchFetchedAt < LOCAL_CACHE_MS) return cachedMatchSnapshot;
+
   try {
     const r = await getRedisClient();
     if (r) {
       try {
         const t0 = nowMs();
+        if (typeof r.mGet === "function") {
+          const [, , snap] = await r.mGet([KEY, `${KEY}:owner`, `${KEY}:snapshot`]);
+          const dt = nowMs() - t0;
+          if (dt > 10) console.log(`[matchStore] redis MGET snapshot took ${dt}ms`);
+          cachedMatchSnapshot = snap ? JSON.parse(snap) : null;
+          cachedMatchFetchedAt = Date.now();
+          return cachedMatchSnapshot;
+        }
         const val = await r.get(`${KEY}:snapshot`);
         const dt = nowMs() - t0;
-        if (dt > 10)
-          console.log(`[matchStore] redis GET snapshot took ${dt}ms`);
-        return val ? JSON.parse(val) : null;
+        if (dt > 10) console.log(`[matchStore] redis GET snapshot took ${dt}ms`);
+        cachedMatchSnapshot = val ? JSON.parse(val) : null;
+        cachedMatchFetchedAt = Date.now();
+        return cachedMatchSnapshot;
       } catch (e) {
         console.warn("[matchStore] redis get snapshot failed", String(e));
       }
@@ -282,14 +354,18 @@ export async function getMatchSnapshot() {
     if (kv) {
       try {
         const val = await kvClient.get(`${KEY}:snapshot`);
-        return val ? JSON.parse(val) : null;
+        cachedMatchSnapshot = val ? JSON.parse(val) : null;
+        cachedMatchFetchedAt = Date.now();
+        return cachedMatchSnapshot;
       } catch (e) {
         console.warn("[matchStore] KV read snapshot failed", String(e));
       }
     }
   } catch (e) {}
 
-  return inMemorySnapshot ? JSON.parse(inMemorySnapshot) : null;
+  cachedMatchSnapshot = inMemorySnapshot ? JSON.parse(inMemorySnapshot) : null;
+  cachedMatchFetchedAt = Date.now();
+  return cachedMatchSnapshot;
 }
 
 export async function refreshMatchOwner(ownerId: string, ttlMs: number) {
@@ -298,6 +374,8 @@ export async function refreshMatchOwner(ownerId: string, ttlMs: number) {
     if (r) {
       try {
         await r.set(`${KEY}:owner`, ownerId, { PX: ttlMs + 60000 });
+        cachedMatchOwner = ownerId;
+        cachedMatchFetchedAt = Date.now();
         return true;
       } catch (e) {
         console.warn("[matchStore] redis refresh owner failed", String(e));
@@ -321,6 +399,8 @@ export async function refreshMatchOwner(ownerId: string, ttlMs: number) {
   } catch (e) {}
 
   inMemoryOwner = ownerId;
+  cachedMatchOwner = ownerId;
+  cachedMatchFetchedAt = Date.now();
   return true;
 }
 
@@ -338,6 +418,11 @@ export async function releaseMatchToken() {
         } catch (e) {}
         const dt = nowMs() - t0;
         if (dt > 10) console.log(`[matchStore] redis DEL took ${dt}ms`);
+        // invalidate local cache
+        cachedMatchToken = null;
+        cachedMatchOwner = null;
+        cachedMatchSnapshot = null;
+        cachedMatchFetchedAt = Date.now();
         return true;
       } catch (e) {
         console.warn("[matchStore] redis del failed", String(e));
@@ -365,6 +450,10 @@ export async function releaseMatchToken() {
   inMemoryExpiresAt = 0;
   inMemoryOwner = null;
   inMemorySnapshot = null;
+  cachedMatchToken = null;
+  cachedMatchOwner = null;
+  cachedMatchSnapshot = null;
+  cachedMatchFetchedAt = Date.now();
   return true;
 }
 

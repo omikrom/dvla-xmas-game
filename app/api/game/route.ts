@@ -15,7 +15,6 @@ import {
   getMatchEvents,
   getPowerUps,
   getServerFps,
-  getPlayerLogs,
   CAR_DESTROY_THRESHOLD,
 } from "@/lib/gameState";
 import {
@@ -149,13 +148,22 @@ export async function POST(request: NextRequest) {
       // behavior and allow the create/update to proceed.
     }
 
-    // Update player input
+    // Update player input. If client provided an input sequence number (`seq`),
+    // forward it so the server can acknowledge the last processed input.
+    const clientSeq = typeof body.seq === "number" ? body.seq : null;
     const createRes = await measure("createOrUpdatePlayer", () =>
-      createOrUpdatePlayer(playerId, name, steer || 0, throttle || 0, {
-        lastX: body.lastX,
-        lastY: body.lastY,
-        lastAngle: body.lastAngle,
-      })
+      createOrUpdatePlayer(
+        playerId,
+        name,
+        steer || 0,
+        throttle || 0,
+        {
+          lastX: body.lastX,
+          lastY: body.lastY,
+          lastAngle: body.lastAngle,
+        },
+        clientSeq
+      )
     );
 
     // Update physics
@@ -249,8 +257,7 @@ export async function POST(request: NextRequest) {
       });
     } catch (e) {}
 
-    // Build the response payload
-    const resp: any = {
+    return NextResponse.json({
       players: serializedPlayers,
       gameState: gameStateRes.result,
       destructibles: destructiblesRes.result,
@@ -260,66 +267,19 @@ export async function POST(request: NextRequest) {
       events: eventsRes.result,
       powerUps: powerUpsRes.result,
       serverFps: serverFpsRes.result,
-      timing,
-      adoptOk,
       instanceId: getInstanceId(),
       matchToken: getMatchToken(),
       sharedToken,
-      debugPlayer: null,
-    };
-
-    // Optionally augment a debug snapshot for a single player
-    if (body.debugPlayerId) {
-      try {
-        const found = players.find((p: any) => p.id === body.debugPlayerId) || null;
-        let ownerId: string | null = null;
-        try {
-          ownerId = await Promise.resolve(getCurrentMatchOwner());
-        } catch (e) {
-          ownerId = null;
-        }
-        const isOwner = ownerId === getInstanceId();
-        let roomInfo: any = null;
-        try {
-          const r = getRoom();
-          roomInfo = {
-            lastPhysicsUpdate: r.lastPhysicsUpdate || null,
-            periodicPhysicsRunning: !!r.periodicPhysicsHandle,
-            gameState: r.gameState,
-          };
-        } catch (e) {
-          roomInfo = null;
-        }
-        let playerLogs: string[] | null = null;
-        try {
-          playerLogs = getPlayerLogs(body.debugPlayerId as string, 50) || null;
-        } catch (e) {
-          playerLogs = null;
-        }
-        resp.debugPlayer = found
-          ? {
-              ...found,
-              __serverDebug: {
-                ownerId,
-                isOwner,
-                roomInfo,
-                playerLogs,
-              },
-            }
-          : null;
-        console.info("[api/game] debugPlayer ->", {
-          debugPlayerId: body.debugPlayerId,
-          snapshot: resp.debugPlayer,
-        });
-      } catch (e) {
-        // ignore debug augmentation errors
-      }
-    }
-
-    return NextResponse.json(resp);
+      adoptOk,
+      timing,
+      debugPlayer,
+    });
   } catch (error) {
     console.error("Error in game state update:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
 
