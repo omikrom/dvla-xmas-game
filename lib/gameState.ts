@@ -1696,6 +1696,35 @@ export async function startRace() {
   for (const player of room.players.values()) {
     resetPlayerForRace(player);
   }
+  // Save an initial authoritative snapshot immediately so other workers can
+  // adopt the match without waiting for the periodic snapshot saver.
+  try {
+    const initialSnapshot = {
+      destructibles: Array.from(room.destructibles.values()),
+      deliveries: room.deliveries,
+      powerUps: room.powerUps,
+      leaderboard: room.leaderboard,
+      events: room.events,
+    };
+    try {
+      // Save synchronously (fire-and-warn on error). This reduces races when
+      // non-owner workers attempt to adopt immediately after a token appears.
+      await saveMatchSnapshot((room as any).currentMatchToken, initialSnapshot, room.matchDurationMs).catch((err: any) => {
+        console.warn("[GameState] initial saveMatchSnapshot failed:", err);
+      });
+      try {
+        logInfo("[GameState] initial authoritative snapshot saved (owner)");
+      } catch (e) {}
+      try {
+        // Refresh owner TTL immediately so other workers can detect owner liveness
+        refreshMatchOwner(INSTANCE_ID, room.matchDurationMs).catch((err: any) =>
+          console.warn("[GameState] refreshMatchOwner failed (initial):", err)
+        );
+      } catch (e) {}
+    } catch (e) {
+      console.warn("[GameState] error saving initial snapshot:", e);
+    }
+  } catch (e) {}
   console.log(
     `[GameState] Race started: start=${new Date(
       room.raceStartTime
