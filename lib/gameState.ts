@@ -966,7 +966,20 @@ function autoStartRaceIfNeeded() {
   if (room.gameState === "lobby" && room.players.size > 0) {
     const allReady = Array.from(room.players.values()).every((p) => p.ready);
     if (allReady) {
-      startRace();
+      // Do NOT start the race directly here. In multi-instance deployments
+      // this can cause multiple workers to initialize overlapping local
+      // matches. The canonical start flow is the lobby worker claiming the
+      // canonical token (via `claimMatchToken`) and returning it to clients;
+      // whichever worker first receives that token will call
+      // `adoptMatchFromToken()` and initialize the authoritative match.
+      // Keep this function a no-op to avoid accidental local starts.
+      try {
+        // helpful debug when running locally
+        // eslint-disable-next-line no-console
+        console.debug(
+          "[GameState] autoStartRaceIfNeeded: all players ready — lobby should claim token"
+        );
+      } catch (e) {}
     }
   }
 }
@@ -1451,10 +1464,11 @@ function resetPlayerForRace(player: PlayerCar) {
   player.activePowerUps = [];
 }
 
-export function startRace() {
+export async function startRace() {
   if (room.gameState === "racing") {
     return;
   }
+
   // If another worker has already generated a canonical token, prefer it
   // to avoid producing different start times across instances.
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -1475,21 +1489,87 @@ export function startRace() {
     }
   }
 
-  // If we didn't adopt an existing token, create one now with a rounded
-  // start time (nearest second) to reduce tiny differences between
-  // concurrently-starting workers.
+  // If we didn't adopt an existing token, attempt to create/claim a
+  // canonical token in the shared store. Only proceed to initialize the
+  // authoritative match if this worker successfully claims the token.
   if (!room.raceStartTime) {
+    const startedAt = Math.floor(Date.now() / 1000) * 1000;
+    const candidateToken = createMatchToken(startedAt, MATCH_DURATION_MS);
+
+    let claimed = false;
+    try {
+      claimed = !!(await Promise.resolve(
+        claimMatchToken(candidateToken, MATCH_DURATION_MS, INSTANCE_ID)
+      ));
+      try {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        const iid = require("@/lib/gameState").getInstanceId();
+        console.log(`[GameState] startRace: claimMatchToken -> ${claimed}`);
+      } catch (e) {}
+    } catch (e) {
+      console.warn("[GameState] claimMatchToken failed during startRace:", e);
+      claimed = false;
+    }
+
+    if (!claimed) {
+      // If we couldn't claim, try to read the canonical token briefly and
+      // adopt it. This avoids creating competing local matches.
+      const READ_RETRY_MS = 300;
+      const READ_STEP_MS = 60;
+      let tried = 0;
+      let matchToken: string | null = null;
+      try {
+        matchToken = (await Promise.resolve(getCurrentMatchToken())) || null;
+      } catch (e) {
+        matchToken = null;
+      }
+      while (!matchToken && tried < READ_RETRY_MS) {
+        // wait and retry
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((res) => setTimeout(res, READ_STEP_MS));
+        tried += READ_STEP_MS;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          matchToken = (await Promise.resolve(getCurrentMatchToken())) || null;
+        } catch (e) {
+          matchToken = null;
+        }
+      }
+
+      if (matchToken) {
+        try {
+          // Adopt the canonical token (will load snapshot or wait)
+          // eslint-disable-next-line no-await-in-loop
+          await adoptMatchFromToken(matchToken);
+        } catch (e) {
+          console.warn(
+            "[GameState] startRace: adoptMatchFromToken failed for discovered token:",
+            e
+          );
+        }
+        return;
+      }
+
+      // Could not claim or discover a canonical token — abort start to avoid
+      // running a competing local match. Operators can inspect logs and the
+      // lobby flow should re-attempt claiming the token.
+      try {
+        console.warn(
+          "[GameState] startRace: could not claim or discover canonical token; aborting start to avoid duplicate matches"
+        );
+      } catch (e) {}
+      return;
+    }
+
+    // If we successfully claimed the token, initialize authoritative timing
     room.gameState = "racing";
     room.matchDurationMs = MATCH_DURATION_MS;
-    const startedAt = Math.floor(Date.now() / 1000) * 1000;
     room.raceStartTime = startedAt;
     room.raceEndTime = room.raceStartTime + room.matchDurationMs;
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
-    room.currentMatchToken = createMatchToken(
-      room.raceStartTime,
-      room.matchDurationMs
-    );
+    room.currentMatchToken = candidateToken;
   }
   room.destructibles = createInitialDestructibles();
   room.deliveries = createInitialDeliveries();
