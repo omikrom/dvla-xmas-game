@@ -454,8 +454,20 @@ export async function adoptMatchFromToken(token?: string | null) {
         console.warn("Error checking match owner / snapshot during adopt:", e);
       }
 
-      // If we get here it means either we're the owner or snapshot wasn't
-      // available — fall back to local deterministic initialization similar
+      // If we get here: we should only perform local authoritative
+      // initialization when we are the owner. Non-owner workers must not
+      // fall back to creating their own match when the authoritative
+      // snapshot isn't yet available (this can cause duplicate matches).
+      if (!amOwner) {
+        try {
+          logInfo(
+            "[GameState] adoptMatchFromToken: non-owner could not find snapshot yet; aborting adopt (will wait for owner)"
+          );
+        } catch (e) {}
+        return false;
+      }
+
+      // Owner: fall back to local deterministic initialization similar
       // to `startRace()` so this worker becomes authoritative for the token.
       if (room.gameState !== "racing") {
         room.gameState = "racing";
@@ -1878,6 +1890,82 @@ export function updatePhysics(): PlayerCar[] {
     }
   }
 
+  // If all players have disconnected during a race, cancel and clean up
+  // the in-progress match to avoid leaving background timers and tokens
+  // running indefinitely on empty rooms.
+  try {
+    if (currentRoom.players.size === 0 && currentRoom.gameState === "racing") {
+      console.log(
+        "[GameState] No players remain — cancelling active match and cleaning up"
+      );
+      // stop periodic physics
+      try {
+        if (currentRoom.periodicPhysicsHandle) {
+          clearInterval(currentRoom.periodicPhysicsHandle as any);
+          currentRoom.periodicPhysicsHandle = null;
+          logInfo("[GameState] periodic physics tick stopped (empty-room)");
+        }
+      } catch (e) {}
+      // stop periodic snapshot saver
+      try {
+        if (currentRoom.periodicSnapshotHandle) {
+          clearInterval(currentRoom.periodicSnapshotHandle as any);
+          currentRoom.periodicSnapshotHandle = null;
+          logInfo("[GameState] periodic snapshot saver stopped (empty-room)");
+        }
+      } catch (e) {}
+      // stop periodic repairs
+      try {
+        if (currentRoom.periodicRepairHandle) {
+          clearInterval(currentRoom.periodicRepairHandle as any);
+          currentRoom.periodicRepairHandle = null;
+          logInfo("[GameState] periodic repair stopped (empty-room)");
+        }
+      } catch (e) {}
+      // clear any scheduled per-player repair timers
+      try {
+        if (currentRoom.scheduledRepairs) {
+          for (const h of currentRoom.scheduledRepairs.values()) {
+            try {
+              clearTimeout(h as any);
+            } catch (e) {}
+          }
+          currentRoom.scheduledRepairs.clear();
+        }
+      } catch (e) {}
+      // clear any scheduled finalize timer
+      try {
+        if (currentRoom.scheduledFinalize) {
+          clearTimeout(currentRoom.scheduledFinalize as any);
+          currentRoom.scheduledFinalize = null;
+        }
+      } catch (e) {}
+
+      // release the canonical token so other workers/clients won't hold onto it
+      try {
+        releaseMatchToken().catch((err: any) =>
+          console.warn("[GameState] releaseMatchToken failed (empty-room)", err)
+        );
+      } catch (e) {}
+
+      // Reset match-specific timing/state and return to lobby
+      currentRoom.gameState = "lobby";
+      currentRoom.raceStartTime = undefined;
+      currentRoom.raceEndTime = undefined;
+      currentRoom.matchDurationMs = MATCH_DURATION_MS;
+      currentRoom.resetScheduledAt = undefined;
+      currentRoom.destructibles = new Map();
+      currentRoom.deliveries = [];
+      currentRoom.powerUps = [];
+      currentRoom.events = [];
+      currentRoom.leaderboard = [];
+      // Nothing to simulate
+      return [];
+    }
+  } catch (e) {
+    console.warn("[GameState] error while checking for empty-room cleanup", e);
+  }
+
   if (elapsedMs < MIN_PHYSICS_STEP_MS) {
     // Multiple clients poll the API every 50ms; only the first request after a tick should advance the simulation.
     return Array.from(currentRoom.players.values());
@@ -1949,14 +2037,21 @@ export function updatePhysics(): PlayerCar[] {
         }
         // Diagnostic: log when throttle is present or speed changed noticeably
         try {
-          if (Math.abs(player.throttle) > 0.001 || Math.abs(player.speed - prevSpeed) > 0.001) {
+          if (
+            Math.abs(player.throttle) > 0.001 ||
+            Math.abs(player.speed - prevSpeed) > 0.001
+          ) {
             console.log(
-              `[${INSTANCE_ID}] physics -> ${player.id} throttle=${player.throttle} speed=${prevSpeed.toFixed(2)}->${player.speed.toFixed(2)}`
+              `[${INSTANCE_ID}] physics -> ${player.id} throttle=${
+                player.throttle
+              } speed=${prevSpeed.toFixed(2)}->${player.speed.toFixed(2)}`
             );
             try {
               pushPlayerLog(
                 player.id,
-                `physics -> throttle=${player.throttle} speed=${prevSpeed.toFixed(2)}->${player.speed.toFixed(2)}`
+                `physics -> throttle=${
+                  player.throttle
+                } speed=${prevSpeed.toFixed(2)}->${player.speed.toFixed(2)}`
               );
             } catch (e) {}
           }
