@@ -614,6 +614,91 @@ export async function adoptMatchFromToken(token?: string | null) {
   }
 }
 
+// Ensure that if this worker is the canonical owner for the current
+// match and the match is in `racing` state, the periodic physics and
+// snapshot timers are running. This is a defensive helper that callers
+// (e.g. API routes) can invoke to guarantee the owner starts ticking
+// even if initialization raced earlier.
+export async function ensureOwnerPeriodicTasks() {
+  try {
+    const owner = await Promise.resolve(getCurrentMatchOwner());
+    if (!owner || owner !== INSTANCE_ID) return false;
+    if (room.gameState !== "racing") return false;
+
+    // Start periodic physics tick if missing
+    try {
+      if (!room.periodicPhysicsHandle) {
+        room.periodicPhysicsHandle = setInterval(() => {
+          try {
+            updatePhysics();
+          } catch (err) {
+            console.error("[GameState] periodicPhysics interval error:", err);
+          }
+        }, SERVER_PERIODIC_PHYSICS_MS) as unknown as ReturnType<
+          typeof setInterval
+        >;
+        logInfo(
+          `[GameState] periodic physics tick started (${SERVER_PERIODIC_PHYSICS_MS}ms) (ensureOwner)`
+        );
+      }
+    } catch (e) {
+      console.warn(
+        "[GameState] failed to start periodic physics tick (ensureOwner):",
+        e
+      );
+    }
+
+    // Start periodic snapshot saver if missing
+    try {
+      if (!room.periodicSnapshotHandle) {
+        room.periodicSnapshotHandle = setInterval(() => {
+          try {
+            const r = getRoom();
+            const snapshot = {
+              destructibles: Array.from(r.destructibles.values()),
+              deliveries: r.deliveries,
+              powerUps: r.powerUps,
+              leaderboard: r.leaderboard,
+              events: r.events,
+            };
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore
+            const tk = (room as any).currentMatchToken;
+            if (tk) {
+              try {
+                saveMatchSnapshot(tk, snapshot, room.matchDurationMs).catch(
+                  (err: any) =>
+                    console.warn("[GameState] saveMatchSnapshot failed:", err)
+                );
+                try {
+                  refreshMatchOwner(INSTANCE_ID, room.matchDurationMs).catch(
+                    (err: any) =>
+                      console.warn("[GameState] refreshMatchOwner failed:", err)
+                  );
+                } catch (e) {}
+              } catch (err) {
+                console.warn("[GameState] saveMatchSnapshot threw:", err);
+              }
+            }
+          } catch (err) {
+            console.warn("[GameState] periodic snapshot saver error:", err);
+          }
+        }, 200) as unknown as ReturnType<typeof setInterval>;
+        logInfo("[GameState] periodic snapshot saver started (ensureOwner)");
+      }
+    } catch (e) {
+      console.warn(
+        "[GameState] failed to start periodic snapshot saver (ensureOwner):",
+        e
+      );
+    }
+
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function shuffleArray<T>(arr: T[]) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));

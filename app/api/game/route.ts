@@ -85,6 +85,20 @@ export async function POST(request: NextRequest) {
         if (ok) {
           // include a quick log for diagnostics
           console.log(`[api/game] adopted match token from client`);
+          try {
+            // Ensure owner periodic tasks are running if we became the owner
+            // (defensive: often adoptMatchFromToken starts timers, but this
+            // guarantees ticks in case of a race).
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const gs = await Promise.resolve().then(() =>
+              require("@/lib/gameState")
+            );
+            if (gs && typeof gs.ensureOwnerPeriodicTasks === "function") {
+              try {
+                await gs.ensureOwnerPeriodicTasks();
+              } catch (e) {}
+            }
+          } catch (e) {}
         } else {
           console.log(
             `[api/game] adoptMatchFromToken returned false for provided token`
