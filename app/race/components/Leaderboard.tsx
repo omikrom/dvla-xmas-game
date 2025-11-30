@@ -9,7 +9,7 @@ export default function Leaderboard({
 }) {
   const top = entries.slice(0, 6);
   return (
-    <div className="fixed right-4 top-4 z-40 w-44 bg-slate-900/80 p-2 rounded border border-white/10 text-sm">
+    <div className="fixed overflow-y-auto h-full right-4 top-4 z-40 w-44 bg-slate-900/80 p-2 rounded border border-white/10 text-sm">
       <div className="font-semibold text-white">Leaderboard</div>
       <div className="mt-2 space-y-1">
         {top.map((e, i) => (

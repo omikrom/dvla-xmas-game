@@ -62,12 +62,13 @@ export async function POST(request: NextRequest) {
     // We call `startRace()` dynamically (fire-and-forget) so the lobby
     // endpoint remains resilient and avoids circular import problems.
     try {
-      // Only start when all players are ready AND at least two players are
-      // present. This prevents a single owner from starting a match alone.
+      // Only start when all players are ready. Allow single-player starts
+      // so a user can play alone if they choose — the server-side logic
+      // contains safety checks to avoid duplicate matches across instances.
       if (checkAllReady()) {
         try {
           const playersNow = getRoomState();
-          if (playersNow.length >= 2) {
+          if (playersNow.length >= 1) {
             try {
               // eslint-disable-next-line @typescript-eslint/no-var-requires
               const gs = require("@/lib/gameState");

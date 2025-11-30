@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import SnowOverlay from "./components/SnowOverlay";
+import HeroCharacter from "./components/HeroCharacter";
 
 export default function Home() {
   const router = useRouter();
@@ -17,7 +18,23 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-sky-900 via-sky-700 to-slate-800">
-      <main className="flex w-full max-w-2xl flex-col items-center gap-8 px-6 py-12">
+      {/* Background hero (non-interactive) */}
+      <HeroCharacter
+        style={{
+          position: "fixed",
+          inset: 0,
+          width: "100%",
+          maxWidth: 760,
+          height: "100%",
+          left: "10%",
+          top: "12%",
+          opacity: 0.35,
+          pointerEvents: "none",
+          zIndex: 0,
+        }}
+      />
+
+      <main className="relative z-10 flex w-full max-w-2xl flex-col items-center gap-8 px-6 py-12">
         <SnowOverlay count={48} />
         <div className="text-center">
           <div
@@ -34,6 +51,7 @@ export default function Home() {
             “One night. Zero brakes. All Christmas.”
           </p>
         </div>
+        {/* removed inline hero to avoid duplicate/logo-style render; background only */}
 
         <form onSubmit={handleJoinGame} className="w-full space-y-4">
           <div>

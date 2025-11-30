@@ -2491,6 +2491,7 @@ Cannot read properties of undefined (reading 'replace')
                 {/* Map shapes: runtime import removed. Use static map modules when needed. */}
 
                 {/* <DVLABuilding /> */}
+                <DVLABuilding />
                 {/* Custom model from ModelBuilder (temporary test placement) - removed
                       to avoid static duplicates. Destructibles will render MyBuilding
                       via `DestructibleField`. */}
@@ -2828,7 +2829,13 @@ Cannot read properties of undefined (reading 'replace')
         {/* Final leaderboard / end-of-match overlay */}
         {gameState === "finished" && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/80 backdrop-blur-xl px-4">
-            <div className="max-w-5xl w-full bg-white/5 border border-white/20 rounded-3xl p-8 space-y-6">
+            <div
+              className={
+                isMobile && isPortrait
+                  ? "max-w-[92vw] h-full w-full bg-white/5 border border-white/20 rounded-2xl p-4 space-y-4"
+                  : "max-w-5xl w-full bg-white/5 border border-white/20 rounded-3xl p-8 space-y-6"
+              }
+            >
               <div className="text-center space-y-2">
                 <h2 className="text-4xl font-extrabold text-amber-200 drop-shadow">
                   🎄 Merry Christmas! 🎄
@@ -3073,7 +3080,13 @@ Cannot read properties of undefined (reading 'replace')
 
         {/* Speedometer & Damage Indicator */}
         {myCar && (
-          <div className="absolute bottom-24 right-8 space-y-3">
+          <div
+            className={
+              isMobile
+                ? "absolute bottom-36 right-20 space-y-3"
+                : "absolute bottom-24 right-8 space-y-3"
+            }
+          >
             {/* Speedometer (candy-cane striped border wrapper) */}
             <div
               style={{

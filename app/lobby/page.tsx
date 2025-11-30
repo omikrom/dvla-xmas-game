@@ -289,8 +289,8 @@ export default function LobbyPage() {
         <div className="text-center text-slate-400 text-sm">
           <p>Share this page with friends to play together!</p>
           <p className="mt-2">
-            Race starts when everyone is ready — or after the lobby triggers the
-            next round.
+            Race starts when everyone is ready. Single-player starts are allowed
+            so you can play alone if you prefer.
           </p>
         </div>
       </div>
