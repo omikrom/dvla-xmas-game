@@ -300,6 +300,33 @@ export async function getCurrentMatchOwner() {
   return inMemoryOwner;
 }
 
+// Return owner TTL in milliseconds (if Redis available). Returns null when
+// TTL cannot be determined (no redis/kv client). Redis `PTTL` returns -2
+// when key does not exist and -1 when key exists but has no associated TTL.
+export async function getMatchOwnerTtl() {
+  try {
+    const r = await getRedisClient();
+    if (!r) return null;
+    try {
+      if (typeof r.pTTL === "function") {
+        const ttl = await r.pTTL(`${KEY}:owner`);
+        // node-redis returns integer milliseconds; pass through as number
+        return typeof ttl === "number" ? ttl : null;
+      }
+      // if pTTL not available, try TTL and convert to ms
+      if (typeof r.ttl === "function") {
+        const sec = await r.ttl(`${KEY}:owner`);
+        if (typeof sec === "number" && sec >= 0) return sec * 1000;
+        return null;
+      }
+    } catch (e) {
+      console.warn("[matchStore] redis pTTL failed", String(e));
+      return null;
+    }
+  } catch (e) {}
+  return null;
+}
+
 export async function saveMatchSnapshot(
   token: string,
   snapshot: any,

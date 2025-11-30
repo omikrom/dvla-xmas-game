@@ -219,6 +219,48 @@ const SPAWN_GRID_MAX = 85;
 const SPAWN_GRID_STEP = 8; // spacing between candidates
 const PLAYER_SPAWN_CLEARANCE = 6; // minimum distance from objects/players
 
+// Optional seeded RNG for deterministic map generation across workers.
+let _mapSeed: number | null = null;
+let _mapRng: (() => number) | null = null;
+
+function hashStringToInt(s: string) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h >>> 0;
+}
+
+function mulberry32(a: number) {
+  let t = a >>> 0;
+  return function () {
+    t += 0x6d2b79f5;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function setMapSeed(seed?: number | string | null) {
+  if (seed == null) {
+    _mapSeed = null;
+    _mapRng = null;
+    return;
+  }
+  const s = typeof seed === "number" ? seed >>> 0 : hashStringToInt(String(seed));
+  _mapSeed = s;
+  _mapRng = mulberry32(s);
+}
+
+export function getMapSeed() {
+  return _mapSeed;
+}
+
+function mapRandom() {
+  return _mapRng ? _mapRng() : Math.random();
+}
+
 const PLAYER_SPAWN_CANDIDATES: Array<{ x: number; y: number }> = (() => {
   const out: Array<{ x: number; y: number }> = [];
   for (let x = SPAWN_GRID_MIN; x <= SPAWN_GRID_MAX; x += SPAWN_GRID_STEP) {
@@ -272,6 +314,7 @@ import {
   getCurrentMatchOwner,
   saveMatchSnapshot,
   refreshMatchOwner,
+  getMatchOwnerTtl,
 } from "@/lib/matchStore";
 import { claimMatchToken } from "@/lib/matchStore";
 
@@ -416,6 +459,11 @@ export async function adoptMatchFromToken(token?: string | null) {
           if (snap) {
             // Apply snapshot into room state (read-only worker)
             try {
+              // restore map seed (if owner saved one) so any subsequent
+              // deterministic generation matches the owner
+              try {
+                if (snap.mapSeed !== undefined) setMapSeed(snap.mapSeed);
+              } catch (e) {}
               room.gameState = "racing";
               // destructibles saved as array
               if (Array.isArray(snap.destructibles)) {
@@ -431,6 +479,25 @@ export async function adoptMatchFromToken(token?: string | null) {
                 ? snap.leaderboard
                 : [];
               room.events = Array.isArray(snap.events) ? snap.events : [];
+              // restore players if snapshot includes them so non-owner workers
+              // render the same world (positions, colors, etc.). Players are
+              // saved as an array in the owner snapshot.
+              if (Array.isArray(snap.players)) {
+                try {
+                  room.players = new Map(
+                    snap.players.map((p: any) => [p.id, p])
+                  );
+                } catch (e) {
+                  // ignore player restore errors and keep existing players
+                }
+              }
+              // restore race timing if present (owner snapshot may include these)
+              if (typeof snap.raceStartTime === "number") {
+                room.raceStartTime = snap.raceStartTime;
+              }
+              if (typeof snap.raceEndTime === "number") {
+                room.raceEndTime = snap.raceEndTime;
+              }
               room.lastPhysicsUpdate = Date.now();
 
               // Non-owner: DO NOT start authoritative physics or finalize timer.
@@ -452,7 +519,43 @@ export async function adoptMatchFromToken(token?: string | null) {
             } catch (e) {
               console.warn("Failed to apply match snapshot:", e);
             }
-          }
+            }
+
+            // If we failed to find a snapshot after polling, check the owner's
+            // TTL. If the owner key is missing/expired we can try to claim the
+            // canonical token and become owner to avoid the match stalling.
+            try {
+              const redisConfigured = !!(
+                process.env.REDIS_URL || process.env.REDIS_URI
+              );
+              if (redisConfigured) {
+                try {
+                  const ownerTtl = await Promise.resolve(getMatchOwnerTtl());
+                  // If ownerTtl is null we couldn't read TTL; otherwise
+                  // PTTL returns -2 for no key, -1 for key without TTL.
+                  if (ownerTtl !== null && ownerTtl <= 0) {
+                    // Attempt to claim the token aggressively — claimMatchToken
+                    // will succeed only if owner key is not present (SET NX).
+                    try {
+                      const claimed = await Promise.resolve(
+                        claimMatchToken(token as string, payload.durationMs, INSTANCE_ID)
+                      );
+                      if (claimed) {
+                        amOwner = true;
+                        logInfo(
+                          `[GameState] adoptMatchFromToken: claimed canonical token due to expired owner (instance=${INSTANCE_ID})`
+                        );
+                      }
+                    } catch (e) {
+                      // ignore claim errors and continue to wait/fallback
+                      console.warn("claimMatchToken during adopt takeover failed:", e);
+                    }
+                  }
+                } catch (e) {
+                  // ignore TTL check errors
+                }
+              }
+            } catch (e) {}
         }
       } catch (e) {
         // ignore snapshot loading errors and fall back to local init
@@ -523,6 +626,10 @@ export async function adoptMatchFromToken(token?: string | null) {
                     powerUps: r.powerUps,
                     leaderboard: r.leaderboard,
                     events: r.events,
+                    players: Array.from(r.players.values()),
+                    raceStartTime: r.raceStartTime,
+                    raceEndTime: r.raceEndTime,
+                    mapSeed: getMapSeed(),
                   };
                   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
                   // @ts-ignore
@@ -665,6 +772,9 @@ export async function ensureOwnerPeriodicTasks() {
               powerUps: r.powerUps,
               leaderboard: r.leaderboard,
               events: r.events,
+              players: Array.from(r.players.values()),
+              raceStartTime: r.raceStartTime,
+              raceEndTime: r.raceEndTime,
             };
             // eslint-disable-next-line @typescript-eslint/ban-ts-comment
             // @ts-ignore
@@ -724,7 +834,7 @@ export function isPeriodicSnapshotRunning() {
 
 function shuffleArray<T>(arr: T[]) {
   for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(mapRandom() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
 }
@@ -802,23 +912,21 @@ function findSpawnPosition(): { x: number; y: number } {
   for (const c of candidates) {
     if (isSafeSpawn(c.x, c.y))
       return {
-        x: c.x + (Math.random() - 0.5) * 2,
-        y: c.y + (Math.random() - 0.5) * 2,
+        x: c.x + (mapRandom() - 0.5) * 2,
+        y: c.y + (mapRandom() - 0.5) * 2,
       };
   }
   // fallback: sample random positions until one is safe (bounded attempts)
   for (let i = 0; i < 120; i++) {
-    const x =
-      Math.random() * (SPAWN_GRID_MAX - SPAWN_GRID_MIN) + SPAWN_GRID_MIN;
-    const y =
-      Math.random() * (SPAWN_GRID_MAX - SPAWN_GRID_MIN) + SPAWN_GRID_MIN;
+    const x = mapRandom() * (SPAWN_GRID_MAX - SPAWN_GRID_MIN) + SPAWN_GRID_MIN;
+    const y = mapRandom() * (SPAWN_GRID_MAX - SPAWN_GRID_MIN) + SPAWN_GRID_MIN;
     if (isSafeSpawn(x, y, PLAYER_SPAWN_CLEARANCE * 0.8)) return { x, y };
   }
   // final fallback: keep existing behavior (start line)
   console.warn(
     "[GameState] findSpawnPosition: no safe candidate found - falling back to start line"
   );
-  return { x: (Math.random() - 0.5) * 8, y: -27 };
+  return { x: (mapRandom() - 0.5) * 8, y: -27 };
 }
 const DELIVERY_DROP_POINTS = [
   { x: 0, y: 65, radius: 7 },
@@ -1468,7 +1576,7 @@ function createInitialDestructibles(): Map<string, Destructible> {
   const MAX_ATTEMPTS = 800;
 
   function randRange(min: number, max: number) {
-    return Math.random() * (max - min) + min;
+    return mapRandom() * (max - min) + min;
   }
 
   const existingPositions: Array<{ x: number; y: number; radius: number }> =
@@ -1560,7 +1668,7 @@ function resetPlayerForRace(player: PlayerCar) {
   player.x = pos.x;
   player.y = pos.y;
   player.z = 0.3;
-  player.angle = Math.random() * Math.PI * 2;
+  player.angle = mapRandom() * Math.PI * 2;
   player.speed = 0;
   player.verticalSpeed = 0;
   player.damage = 0;
@@ -1678,6 +1786,12 @@ export async function startRace() {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     room.currentMatchToken = candidateToken;
+    // Set deterministic map seed for this match so other workers can
+    // reproduce the same map when they adopt the snapshot.
+    try {
+      const seed = ((room.raceStartTime || Date.now()) >>> 0) ^ hashStringToInt(INSTANCE_ID);
+      setMapSeed(seed);
+    } catch (e) {}
   }
   room.destructibles = createInitialDestructibles();
   room.deliveries = createInitialDeliveries();
@@ -1705,6 +1819,10 @@ export async function startRace() {
       powerUps: room.powerUps,
       leaderboard: room.leaderboard,
       events: room.events,
+      players: Array.from(room.players.values()),
+      raceStartTime: room.raceStartTime,
+      raceEndTime: room.raceEndTime,
+      mapSeed: getMapSeed(),
     };
     try {
       // Save synchronously (fire-and-warn on error). This reduces races when
@@ -2518,9 +2636,9 @@ export function updatePhysics(): PlayerCar[] {
           if (pu.type === "teleport") {
             // Teleport player to a random ROOM_POWERUP_CANDIDATES location that's not too close
             const candidates = ROOM_POWERUP_CANDIDATES.slice();
-            // shuffle
+            // shuffle (deterministic when mapSeed set)
             for (let i = candidates.length - 1; i > 0; i--) {
-              const j = Math.floor(Math.random() * (i + 1));
+              const j = Math.floor(mapRandom() * (i + 1));
               [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
             }
             let placed = false;
@@ -2542,8 +2660,8 @@ export function updatePhysics(): PlayerCar[] {
               }
               if (tooClose) continue;
               // perform teleport
-              player.x = cand.x + (Math.random() - 0.5) * 1.5;
-              player.y = cand.y + (Math.random() - 0.5) * 1.5;
+              player.x = cand.x + (mapRandom() - 0.5) * 1.5;
+              player.y = cand.y + (mapRandom() - 0.5) * 1.5;
               player.z = groundHeight;
               player.verticalSpeed = 0;
               console.log(
@@ -2579,9 +2697,9 @@ export function updatePhysics(): PlayerCar[] {
   if (activeCount < maxPowerUps) {
     const need = maxPowerUps - activeCount;
     const candidates = ROOM_POWERUP_CANDIDATES.slice();
-    // simple shuffle
+    // simple shuffle (deterministic when mapSeed set)
     for (let i = candidates.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(mapRandom() * (i + 1));
       [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
     }
     let spawned = 0;
@@ -2624,7 +2742,7 @@ export function updatePhysics(): PlayerCar[] {
       )
         continue;
       const types = Object.keys(SERVER_POWERUP_CONFIGS) as PowerUpType[];
-      const t = types[Math.floor(Math.random() * types.length)];
+      const t = types[Math.floor(mapRandom() * types.length)];
       const newPu: PowerUpItem = {
         id: `pu-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         type: t,
@@ -3382,8 +3500,8 @@ function releaseDeliveryAt(
 }
 
 function randomizeDeliveryPosition(delivery: DeliveryItem) {
-  delivery.x = delivery.spawnX + (Math.random() - 0.5) * 2.5;
-  delivery.y = delivery.spawnY + (Math.random() - 0.5) * 2.5;
+  delivery.x = delivery.spawnX + (mapRandom() - 0.5) * 2.5;
+  delivery.y = delivery.spawnY + (mapRandom() - 0.5) * 2.5;
 }
 
 function clearDeliveryTarget(delivery: DeliveryItem) {
