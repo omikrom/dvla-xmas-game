@@ -3,12 +3,7 @@
 export const dynamic = "force-dynamic";
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import {
-  Environment,
-  OrbitControls,
-  ContactShadows,
-  Stars,
-} from "@react-three/drei";
+import { Environment, ContactShadows, Stars } from "@react-three/drei";
 import { Physics, RigidBody, CuboidCollider } from "@react-three/rapier";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -58,6 +53,7 @@ import PowerUp from "./assets/PowerUp";
 import CameraAspectUpdater from "./components/CameraAspectUpdater";
 import InterpolatedCar from "./components/InterpolatedCar";
 import FollowCamera from "./components/FollowCamera";
+import TargetedOrbitControls from "./components/TargetedOrbitControls";
 // import DebugPanel from "./components/DebugPanel";
 import AudioHeaderButton from "../components/AudioHeaderButton";
 import MobileControls from "./components/MobileControls";
@@ -2813,13 +2809,7 @@ Cannot read properties of undefined (reading 'replace')
                   mobileHeight={6}
                 />
               ) : (
-                <OrbitControls
-                  enableDamping
-                  dampingFactor={0.05}
-                  minDistance={30}
-                  maxDistance={100}
-                  maxPolarAngle={Math.PI / 2.5}
-                />
+                <TargetedOrbitControls playerId={playerId} cars={cars} />
               )}
             </Canvas>
             {/* </div> */}
