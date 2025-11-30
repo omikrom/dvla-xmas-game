@@ -4,12 +4,14 @@ import React, { useEffect, useState } from "react";
 export default function AudioControls() {
   const [playing, setPlaying] = useState<boolean>(false);
   const [volume, setVolume] = useState<number>(0.7);
+  const [muted, setMuted] = useState<boolean>(false);
 
   useEffect(() => {
     const onStatus = (ev: any) => {
       try {
         const detail = ev.detail || {};
         setPlaying(!!detail.playing);
+        if (typeof detail.muted === "boolean") setMuted(detail.muted);
       } catch (e) {
         setPlaying(false);
       }
@@ -18,6 +20,7 @@ export default function AudioControls() {
       try {
         const detail = ev.detail || {};
         if (typeof detail.volume === "number") setVolume(detail.volume);
+        if (typeof detail.muted === "boolean") setMuted(detail.muted);
       } catch (e) {}
     };
     window.addEventListener("audio:status", onStatus as any);
@@ -30,6 +33,17 @@ export default function AudioControls() {
 
   const toggle = () => {
     window.dispatchEvent(new Event("audio:toggle"));
+  };
+  const toggleMute = () => {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("audio:toggleMuted", { detail: {} })
+      );
+    } catch (e) {
+      const ev: any = new Event("audio:toggleMuted");
+      (ev as any).detail = {};
+      window.dispatchEvent(ev);
+    }
   };
   const stop = () => {
     window.dispatchEvent(new Event("audio:stop"));
@@ -67,6 +81,14 @@ export default function AudioControls() {
           title="Stop"
         >
           ⏹
+        </button>
+        <button
+          onClick={toggleMute}
+          className="px-2 py-1 rounded bg-white/6 hover:bg-white/12 text-white text-sm"
+          title={muted ? "Unmute" : "Mute"}
+          aria-pressed={muted}
+        >
+          {muted ? "🔇" : "🔊"}
         </button>
         <button
           onClick={() => window.dispatchEvent(new Event("audio:next"))}

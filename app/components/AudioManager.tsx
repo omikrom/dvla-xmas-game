@@ -41,19 +41,32 @@ export default function AudioManager() {
   const isFadingRef = useRef(false);
   const [requiresUserGesture, setRequiresUserGesture] = useState(false);
   const lastVolumeRef = useRef<number>(0.7);
+  const lastMutedRef = useRef<boolean>(false);
   const desiredStateRef = useRef<string | null>(null);
 
   function readAudioState() {
     try {
-      const s = sessionStorage.getItem("GAME_AUDIO_STATE");
-      if (s) return JSON.parse(s);
+      // Prefer localStorage so user preferences persist across sessions.
+      const raw =
+        localStorage.getItem("GAME_AUDIO_STATE") ||
+        sessionStorage.getItem("GAME_AUDIO_STATE");
+      if (raw) return JSON.parse(raw);
     } catch (e) {}
-    return { desired: "playing", volume: 0.7 };
+    return { desired: "playing", volume: 0.7, muted: false };
   }
 
   function writeAudioState(obj: any) {
     try {
-      sessionStorage.setItem("GAME_AUDIO_STATE", JSON.stringify(obj));
+      // Persist to localStorage for cross-session persistence. Also
+      // write to sessionStorage as a fallback for older sessions.
+      try {
+        localStorage.setItem("GAME_AUDIO_STATE", JSON.stringify(obj));
+      } catch (e) {
+        /* ignore localStorage errors */
+      }
+      try {
+        sessionStorage.setItem("GAME_AUDIO_STATE", JSON.stringify(obj));
+      } catch (e) {}
     } catch (e) {}
   }
 
@@ -77,6 +90,7 @@ export default function AudioManager() {
       const s = readAudioState();
       lastVolumeRef.current =
         typeof s.volume === "number" ? s.volume : lastVolumeRef.current;
+      lastMutedRef.current = !!s.muted;
       desiredStateRef.current = s.desired || "playing";
     } catch (e) {}
 
@@ -196,7 +210,11 @@ export default function AudioManager() {
       // persist desired stopped state
       try {
         desiredStateRef.current = "stopped";
-        writeAudioState({ desired: "stopped", volume: lastVolumeRef.current });
+        writeAudioState({
+          desired: "stopped",
+          volume: lastVolumeRef.current,
+          muted: lastMutedRef.current,
+        });
       } catch (e) {}
     };
 
@@ -276,10 +294,14 @@ export default function AudioManager() {
         if (!cur) {
           // no active audio — store master volume for next track
           lastVolumeRef.current = target;
+          // Changing volume implies user intent — clear muted flag
+          lastMutedRef.current = false;
           // notify UI
           try {
             window.dispatchEvent(
-              new CustomEvent("audio:volume", { detail: { volume: target } })
+              new CustomEvent("audio:volume", {
+                detail: { volume: target, muted: lastMutedRef.current },
+              })
             );
           } catch (e) {}
           return;
@@ -292,16 +314,65 @@ export default function AudioManager() {
           cur.volume = target;
         }
         lastVolumeRef.current = cur.volume;
+        // Changing volume implies user intent — clear muted flag
+        lastMutedRef.current = false;
         // notify UI
         try {
           window.dispatchEvent(
-            new CustomEvent("audio:volume", { detail: { volume: cur.volume } })
+            new CustomEvent("audio:volume", {
+              detail: { volume: cur.volume, muted: lastMutedRef.current },
+            })
           );
         } catch (e) {}
         try {
           writeAudioState({
             desired: desiredStateRef.current || "playing",
             volume: lastVolumeRef.current,
+            muted: lastMutedRef.current,
+          });
+        } catch (e) {}
+      } catch (e) {}
+    };
+
+    const handleSetMuted = async (ev: any) => {
+      try {
+        const detail = ev.detail || {};
+        const muted =
+          typeof detail.muted === "boolean"
+            ? detail.muted
+            : !lastMutedRef.current;
+        lastMutedRef.current = muted;
+        const cur = currentAudioRef.current;
+        if (cur) {
+          try {
+            cur.volume = muted
+              ? 0
+              : Math.max(0, Math.min(1, lastVolumeRef.current || 0.7));
+          } catch (e) {}
+        }
+        // notify UI about volume + muted state
+        try {
+          window.dispatchEvent(
+            new CustomEvent("audio:volume", {
+              detail: { volume: muted ? 0 : lastVolumeRef.current, muted },
+            })
+          );
+          window.dispatchEvent(
+            new CustomEvent("audio:status", {
+              detail: {
+                playing: !!(
+                  currentAudioRef.current && !currentAudioRef.current.paused
+                ),
+                muted,
+              },
+            })
+          );
+        } catch (e) {}
+        try {
+          writeAudioState({
+            desired: desiredStateRef.current || "playing",
+            volume: lastVolumeRef.current,
+            muted: lastMutedRef.current,
           });
         } catch (e) {}
       } catch (e) {}
@@ -318,6 +389,8 @@ export default function AudioManager() {
     window.addEventListener("audio:toggle", handleToggle as any);
     window.addEventListener("audio:next", handleNext as any);
     window.addEventListener("audio:setVolume", handleSetVolume as any);
+    window.addEventListener("audio:setMuted", handleSetMuted as any);
+    window.addEventListener("audio:toggleMuted", handleSetMuted as any);
 
     // debug helpers (kept as named functions so we can remove them cleanly)
     const dbgLobby = () =>
@@ -327,6 +400,23 @@ export default function AudioManager() {
     window.addEventListener("audio:playLobby", dbgLobby);
     window.addEventListener("audio:playRacing", dbgRacing);
 
+    // Emit initial UI state so controls can initialize to user's preferences.
+    try {
+      window.dispatchEvent(
+        new CustomEvent("audio:volume", {
+          detail: {
+            volume: lastMutedRef.current ? 0 : lastVolumeRef.current,
+            muted: lastMutedRef.current,
+          },
+        })
+      );
+      window.dispatchEvent(
+        new CustomEvent("audio:status", {
+          detail: { playing: false, muted: lastMutedRef.current },
+        })
+      );
+    } catch (e) {}
+
     return () => {
       mountedRef.current = false;
       window.removeEventListener("audio:playLobby", handlePlayLobby);
@@ -335,6 +425,8 @@ export default function AudioManager() {
       window.removeEventListener("audio:toggle", handleToggle as any);
       window.removeEventListener("audio:next", handleNext as any);
       window.removeEventListener("audio:setVolume", handleSetVolume as any);
+      window.removeEventListener("audio:setMuted", handleSetMuted as any);
+      window.removeEventListener("audio:toggleMuted", handleSetMuted as any);
       window.removeEventListener("audio:playLobby", dbgLobby);
       window.removeEventListener("audio:playRacing", dbgRacing);
       const cur = currentAudioRef.current;
