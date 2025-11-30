@@ -2101,6 +2101,31 @@ export function setPlayerColor(playerId: string, color: string) {
   return player;
 }
 
+// Remove inactive players when in lobby (not during an active race).
+// Returns an array of removed player ids.
+export function cleanupInactiveLobbyPlayers(): string[] {
+  const currentRoom = getRoom();
+  const now = Date.now();
+  const removed: string[] = [];
+  try {
+    // Only perform lobby cleanup when not racing. For races we rely on
+    // `updatePhysics()` and its empty-room cleanup logic.
+    if (currentRoom.gameState === "racing") return removed;
+    for (const [playerId, player] of currentRoom.players.entries()) {
+      if (now - (player.lastUpdate || 0) > PLAYER_TIMEOUT) {
+        currentRoom.players.delete(playerId);
+        removed.push(playerId);
+        try {
+          recordSystemEvent(`Removed inactive lobby player: ${playerId}`);
+        } catch (e) {}
+      }
+    }
+  } catch (e) {
+    console.warn("[GameState] cleanupInactiveLobbyPlayers failed:", e);
+  }
+  return removed;
+}
+
 // Repair a player's car by reducing damage by `amount` (0-100).
 // If damage falls below the destruction threshold the destroyed flag is cleared.
 export function repairPlayer(playerId: string, amount: number) {

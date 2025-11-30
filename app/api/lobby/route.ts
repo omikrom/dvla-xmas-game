@@ -6,6 +6,7 @@ import {
   getRoomState,
   // startRace is intentionally not imported directly to avoid circular
   // issues during cold-start; we'll require it dynamically when needed.
+  cleanupInactiveLobbyPlayers,
 } from "@/lib/gameState";
 import {
   claimMatchToken,
@@ -85,6 +86,13 @@ export async function POST(request: NextRequest) {
         } catch (e) {}
       }
     } catch (e) {}
+
+    // Clean up any inactive players who may have disconnected while in the lobby.
+    try {
+      cleanupInactiveLobbyPlayers();
+    } catch (e) {
+      console.warn("[lobby] cleanupInactiveLobbyPlayers failed:", e);
+    }
 
     // Return lobby state (simplified): we do not claim tokens here to keep
     // the endpoint robust. Token claiming is handled inside
