@@ -58,7 +58,7 @@ import PowerUp from "./assets/PowerUp";
 import CameraAspectUpdater from "./components/CameraAspectUpdater";
 import InterpolatedCar from "./components/InterpolatedCar";
 import FollowCamera from "./components/FollowCamera";
-import DebugPanel from "./components/DebugPanel";
+// import DebugPanel from "./components/DebugPanel";
 import AudioHeaderButton from "../components/AudioHeaderButton";
 import MobileControls from "./components/MobileControls";
 import RuntimeDiagnostics from "./components/RuntimeDiagnostics";
@@ -3171,10 +3171,10 @@ Cannot read properties of undefined (reading 'replace')
           setAcceleratorHeld={setAcceleratorHeld}
           setBrakeHeld={setBrakeHeld}
         />
-        <GameDebugPanel
+        {/* <GameDebugPanel
           initialPlayerId={playerId}
           initialMatchToken={matchTokenRef.current || undefined}
-        />
+        /> */}
       </div>
     </main>
   );
