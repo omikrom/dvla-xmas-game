@@ -31,6 +31,18 @@ export async function POST(request: NextRequest) {
     // Update player ready status
     updatePlayerReady(playerId, name, ready);
 
+    // If the match already finished some time ago, allow a quick reset
+    // to lobby when players interact (avoid waiting the full scheduled
+    // reset). Use a 30s threshold so players have time to review results.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const gs = require("@/lib/gameState");
+      if (gs && typeof gs.resetIfFinishedOlderThan === "function") {
+        // If this returns true the room was reset to `lobby` immediately.
+        gs.resetIfFinishedOlderThan(30 * 1000);
+      }
+    } catch (e) {}
+
     // Update player color if provided (best-effort, avoid throwing)
     if (typeof color === "string" && color.trim()) {
       try {

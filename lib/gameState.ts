@@ -1874,6 +1874,51 @@ export function getTimerState() {
   };
 }
 
+// If the room is in `finished` state and the race ended at least
+// `thresholdMs` milliseconds ago, immediately reset the room to the
+// lobby. Returns true if a reset was performed.
+export function resetIfFinishedOlderThan(thresholdMs: number): boolean {
+  try {
+    const now = Date.now();
+    if (room.gameState === "finished" && room.raceEndTime) {
+      if (now >= room.raceEndTime + thresholdMs) {
+        console.log(
+          `[GameState] resetIfFinishedOlderThan: resetting room to lobby (threshold=${thresholdMs}ms)`
+        );
+        // Reset world objects so next round starts clean. Do not auto-start;
+        // the lobby must trigger the next round via ready / lobby API.
+        room.gameState = "lobby";
+        room.resetScheduledAt = undefined;
+        room.destructibles = createInitialDestructibles();
+        room.deliveries = createInitialDeliveries();
+        room.powerUps = [];
+        room.events = [];
+        // Ensure periodic physics is stopped when returning to lobby
+        try {
+          if (room.periodicPhysicsHandle) {
+            clearInterval(room.periodicPhysicsHandle as any);
+            room.periodicPhysicsHandle = null;
+            logInfo(
+              "[GameState] periodic physics tick stopped (reset to lobby)"
+            );
+          }
+        } catch (e) {}
+        // Clear player ready flags so lobby can manage next-start explicitly
+        for (const p of room.players.values()) {
+          p.ready = false;
+          p.destroyed = false;
+          p.damage = 0;
+          p.carryingDeliveryId = undefined;
+          p.activePowerUps = [];
+        }
+        recordSystemEvent("Server reset to lobby after match end (threshold)");
+        return true;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+
 // Ensure the match is finalized if the timer has expired. Returns true
 // if a finalize was performed.
 export function ensureFinalizeIfDue() {
