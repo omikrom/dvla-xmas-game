@@ -668,7 +668,7 @@ export async function adoptMatchFromToken(token?: string | null) {
                     err
                   );
                 }
-              }, 200) as unknown as ReturnType<typeof setInterval>;
+              }, 100) as unknown as ReturnType<typeof setInterval>;
               logInfo("[GameState] periodic snapshot saver started (owner)");
             }
           }
@@ -798,7 +798,7 @@ export async function ensureOwnerPeriodicTasks() {
           } catch (err) {
             console.warn("[GameState] periodic snapshot saver error:", err);
           }
-        }, 200) as unknown as ReturnType<typeof setInterval>;
+        }, 100) as unknown as ReturnType<typeof setInterval>;
         logInfo("[GameState] periodic snapshot saver started (ensureOwner)");
       }
     } catch (e) {
@@ -1399,21 +1399,24 @@ function createInitialDestructibles(): Map<string, Destructible> {
       destroyed: false,
       debris: [],
     },
-    // DVLA main building - non-destructible landmark handled as a building so
-    // server-side collisions will push players away instead of letting them pass through.
+    // DVLA main building - destructible landmark with very high health.
+    // Renders via DVLABuildingDestructible component registered with model: "dvla".
+    // Note: The DVLA building is a complex shape. For server collision, we use
+    // a single collision circle centered at -5, -105 with radius 35 to cover most of it.
+    // Client-side Rapier handles precise collision detection.
     {
       id: "dvlab-main",
       type: "building",
-      x: 0,
-      // Move server-side DVLA landmark to match the client DVLA visuals
-      // which were shifted out-of-map; this prevents an invisible
-      // blocking area at the scene origin while preserving a blocker
-      // where the building actually is rendered.
-      y: -100,
-      radius: 12,
+      model: "dvla",
+      x: -5,
+      // Position to match the client DVLA visuals center
+      y: -105,
+      radius: 35,
       height: 40,
-      maxHealth: 99999,
-      health: 99999,
+      width: 50,
+      depth: 60,
+      maxHealth: 800,
+      health: 800,
       destroyed: false,
       debris: [],
     },
@@ -1681,8 +1684,26 @@ function resetPlayerForRace(player: PlayerCar) {
 }
 
 export async function startRace() {
+  // If game is still racing, don't restart
   if (room.gameState === "racing") {
+    console.log("[GameState] startRace: already racing, ignoring");
     return;
+  }
+
+  // If game just finished, ensure we reset first
+  if (room.gameState === "finished") {
+    console.log("[GameState] startRace: game is finished, forcing reset to lobby first");
+    forceResetToLobby();
+    // Give a moment for the reset to complete
+    await new Promise(res => setTimeout(res, 100));
+  }
+
+  // Clear any stale race timing from previous match
+  if (room.raceStartTime || room.raceEndTime) {
+    console.log("[GameState] startRace: clearing stale race timing from previous match");
+    room.raceStartTime = undefined;
+    room.raceEndTime = undefined;
+    (room as any).currentMatchToken = null;
   }
 
   // If another worker has already generated a canonical token, prefer it
@@ -2007,10 +2028,24 @@ export function resetIfFinishedOlderThan(thresholdMs: number): boolean {
         // the lobby must trigger the next round via ready / lobby API.
         room.gameState = "lobby";
         room.resetScheduledAt = undefined;
+        room.raceStartTime = undefined;
+        room.raceEndTime = undefined;
         room.destructibles = createInitialDestructibles();
         room.deliveries = createInitialDeliveries();
         room.powerUps = [];
         room.events = [];
+        
+        // Clear the match token so a new match can start
+        try {
+          (room as any).currentMatchToken = null;
+          // Also release the token from Redis/KV store
+          releaseMatchToken().catch((e: any) => {
+            console.warn("[GameState] releaseMatchToken failed during reset:", e);
+          });
+        } catch (e) {
+          console.warn("[GameState] failed to clear match token during reset:", e);
+        }
+        
         // Ensure periodic physics is stopped when returning to lobby
         try {
           if (room.periodicPhysicsHandle) {
@@ -2035,6 +2070,52 @@ export function resetIfFinishedOlderThan(thresholdMs: number): boolean {
     }
   } catch (e) {}
   return false;
+}
+
+// Force reset the room to lobby state regardless of raceEndTime.
+// Use this when a game is stuck in "finished" state.
+export function forceResetToLobby(): void {
+  console.log("[GameState] forceResetToLobby: forcing room to lobby state");
+  
+  // Reset world objects so next round starts clean
+  room.gameState = "lobby";
+  room.resetScheduledAt = undefined;
+  room.raceStartTime = undefined;
+  room.raceEndTime = undefined;
+  room.destructibles = createInitialDestructibles();
+  room.deliveries = createInitialDeliveries();
+  room.powerUps = [];
+  room.events = [];
+  
+  // Clear the match token so a new match can start
+  try {
+    (room as any).currentMatchToken = null;
+    releaseMatchToken().catch((e: any) => {
+      console.warn("[GameState] releaseMatchToken failed during force reset:", e);
+    });
+  } catch (e) {
+    console.warn("[GameState] failed to clear match token during force reset:", e);
+  }
+  
+  // Ensure periodic physics is stopped when returning to lobby
+  try {
+    if (room.periodicPhysicsHandle) {
+      clearInterval(room.periodicPhysicsHandle as any);
+      room.periodicPhysicsHandle = null;
+      logInfo("[GameState] periodic physics tick stopped (force reset)");
+    }
+  } catch (e) {}
+  
+  // Clear player ready flags so lobby can manage next-start explicitly
+  for (const p of room.players.values()) {
+    p.ready = false;
+    p.destroyed = false;
+    p.damage = 0;
+    p.carryingDeliveryId = undefined;
+    p.activePowerUps = [];
+  }
+  
+  recordSystemEvent("Server force reset to lobby");
 }
 
 // Ensure the match is finalized if the timer has expired. Returns true
@@ -2978,24 +3059,25 @@ function handleDestructibleCollisions(
       const impactVelocity = Math.hypot(horizontalSpeed, verticalInfluence);
       if (impactVelocity < 1.5) continue;
 
-      // If this is the server-only DVLA landmark, treat it as a static
-      // blocking object that should not damage the car. Push the player
-      // out and damp speed, but do not apply destructible or car damage.
-      if (destructible.id === "dvlab-main") {
-        const penetration = hitRadius - distance + 0.2;
-        player.x += normalX * penetration;
-        player.y += normalY * penetration;
-        player.speed *= 0.35;
-        // don't spawn debris or apply damage for this landmark
-        continue;
-      }
-
       // Calculate raw damage from impact velocity, then clamp per-hit so
       // a single collision doesn't instantly destroy a tree/building.
-      const rawDamage =
-        impactVelocity * (destructible.type === "building" ? 6.5 : 6);
-      // Per-hit caps (trees should take multiple hits to fully destroy)
-      const PER_HIT_CAP = destructible.type === "building" ? 60 : 18;
+      // Different multipliers for different object types
+      let damageMultiplier = 6; // default for trees
+      if (destructible.type === "building") damageMultiplier = 6.5;
+      else if (destructible.type === "reindeer") damageMultiplier = 8;
+      else if (destructible.type === "santa") damageMultiplier = 7;
+      else if (destructible.type === "snowman") damageMultiplier = 10;
+      else if (destructible.type === "candy") damageMultiplier = 12;
+      
+      const rawDamage = impactVelocity * damageMultiplier;
+      // Per-hit caps vary by type
+      let PER_HIT_CAP = 18; // default for trees
+      if (destructible.type === "building") PER_HIT_CAP = 60;
+      else if (destructible.type === "reindeer") PER_HIT_CAP = 15;
+      else if (destructible.type === "santa") PER_HIT_CAP = 25;
+      else if (destructible.type === "snowman") PER_HIT_CAP = 20;
+      else if (destructible.type === "candy") PER_HIT_CAP = 25;
+      
       let destructibleDamage = Math.min(rawDamage, PER_HIT_CAP);
 
       // Debounce repeated hits when a car remains contacting the object.
@@ -3009,8 +3091,15 @@ function handleDestructibleCollisions(
         continue;
       }
       destructible.lastHitAt = now;
-      const carDamage =
-        impactVelocity * (destructible.type === "building" ? 1.35 : 1.2);
+      // Car takes less damage from softer objects
+      let carDamageMultiplier = 1.2; // default
+      if (destructible.type === "building") carDamageMultiplier = 1.35;
+      else if (destructible.type === "reindeer") carDamageMultiplier = 0.8;
+      else if (destructible.type === "santa") carDamageMultiplier = 0.6;
+      else if (destructible.type === "snowman") carDamageMultiplier = 0.4;
+      else if (destructible.type === "candy") carDamageMultiplier = 0.3;
+      
+      const carDamage = impactVelocity * carDamageMultiplier;
       const safeDistance = distance || destructible.radius || 1;
       const contactDistance = Math.min(safeDistance, destructible.radius);
       const contactX = destructible.x + normalX * contactDistance;
@@ -3164,32 +3253,72 @@ function spawnDebris(
     destructible.lastDebrisAt = now;
   }
   const { normalX, normalY, contactX, contactY, contactZ } = impact;
+  
+  // Determine scale factor based on building size (DVLA building is larger)
+  const isLargeBuilding = destructible.id === "dvlab-main" || 
+    ((destructible.width ?? 6) > 15 || (destructible.depth ?? 6) > 15);
+  const scaleFactor = isLargeBuilding ? 2.5 : 1;
+  
+  // More chunks for larger buildings
   const chunkCount = shatter
     ? destructible.type === "building"
-      ? 10
+      ? isLargeBuilding ? 20 : 10
       : 6
     : destructible.type === "building"
-    ? 6
+    ? isLargeBuilding ? 10 : 6
     : 3;
 
   // Determine color based on destructible type and custom color if available
-  // Snowman debris should be white; trees/candy remain green-ish by default.
-  const baseColor =
-    destructible.type === "building"
-      ? destructible.color || "#9ca3af"
-      : destructible.type === "snowman"
-      ? "#ffffff"
-      : "#14532d";
+  // DVLA building has grey/white concrete colors
+  const isWhiteBuilding = destructible.id === "dvlab-main";
+  
+  // Type-specific debris colors
+  const getDebrisColor = (): string => {
+    switch (destructible.type) {
+      case "building":
+        if (isWhiteBuilding) {
+          return ["#e6e6e6", "#d4d4d4", "#9ca3af"][Math.floor(Math.random() * 3)];
+        }
+        return destructible.color || "#9ca3af";
+      case "snowman":
+        // White snow chunks with occasional orange (carrot nose) or black (coal)
+        const snowmanColors = ["#ffffff", "#ffffff", "#ffffff", "#ffffff", "#f97316", "#1f2937"];
+        return snowmanColors[Math.floor(Math.random() * snowmanColors.length)];
+      case "santa":
+        // Red suit, white trim, skin tone
+        const santaColors = ["#dc2626", "#dc2626", "#dc2626", "#ffffff", "#ffffff", "#fcd5b8"];
+        return santaColors[Math.floor(Math.random() * santaColors.length)];
+      case "reindeer":
+        // Brown fur, tan antlers, red nose (Rudolph!)
+        const reindeerColors = ["#8b5a2b", "#8b5a2b", "#8b5a2b", "#d4a574", "#d4a574", "#ef4444"];
+        return reindeerColors[Math.floor(Math.random() * reindeerColors.length)];
+      case "candy":
+        // Red and white candy cane stripes
+        const candyColors = ["#dc2626", "#ffffff", "#dc2626", "#ffffff", "#dc2626", "#ffffff"];
+        return candyColors[Math.floor(Math.random() * candyColors.length)];
+      case "tree":
+      default:
+        // Green foliage with occasional brown (trunk) or red/gold (ornaments)
+        const treeColors = ["#14532d", "#14532d", "#14532d", "#166534", "#5c4033", "#dc2626", "#fbbf24"];
+        return treeColors[Math.floor(Math.random() * treeColors.length)];
+    }
+  };
+  
+  const baseColor = getDebrisColor();
 
   for (let i = 0; i < chunkCount; i++) {
     const size =
       destructible.type === "building"
-        ? 0.6 + Math.random() * 1.2
+        ? isLargeBuilding 
+          ? 1.0 + Math.random() * 2.5  // Larger debris for DVLA
+          : 0.6 + Math.random() * 1.2
         : 0.3 + Math.random() * 0.4;
-    const spread = shatter ? 3 + Math.random() * 2 : 1 + Math.random();
-    const vx = normalX * spread + (Math.random() - 0.5) * 1.5;
-    const vy = normalY * spread + (Math.random() - 0.5) * 1.5;
-    const vz = 4 + Math.random() * 4;
+    const spread = shatter 
+      ? isLargeBuilding ? 5 + Math.random() * 4 : 3 + Math.random() * 2 
+      : isLargeBuilding ? 2 + Math.random() * 2 : 1 + Math.random();
+    const vx = normalX * spread + (Math.random() - 0.5) * (isLargeBuilding ? 3 : 1.5);
+    const vy = normalY * spread + (Math.random() - 0.5) * (isLargeBuilding ? 3 : 1.5);
+    const vz = (isLargeBuilding ? 6 : 4) + Math.random() * (isLargeBuilding ? 8 : 4);
 
     destructible.debris.push({
       id: `${destructible.id}-debris-${Date.now()}-${i}-${Math.random()

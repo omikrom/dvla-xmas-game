@@ -29,20 +29,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update player ready status
-    updatePlayerReady(playerId, name, ready);
-
     // If the match already finished some time ago, allow a quick reset
     // to lobby when players interact (avoid waiting the full scheduled
-    // reset). Use a 30s threshold so players have time to review results.
+    // reset). Use a 5s threshold so players can quickly start a new game.
+    // Also force reset if still in "finished" state after interaction.
+    // NOTE: This must happen BEFORE updatePlayerReady to avoid the race reset
+    // clearing the ready flag.
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const gs = require("@/lib/gameState");
-      if (gs && typeof gs.resetIfFinishedOlderThan === "function") {
-        // If this returns true the room was reset to `lobby` immediately.
-        gs.resetIfFinishedOlderThan(30 * 1000);
+      const currentState = gs.getGameState ? gs.getGameState() : null;
+      
+      if (currentState === "finished") {
+        console.log("[lobby] game state is 'finished', attempting reset...");
+        if (gs && typeof gs.resetIfFinishedOlderThan === "function") {
+          // Try with 0ms threshold first to reset immediately
+          const didReset = gs.resetIfFinishedOlderThan(0);
+          console.log("[lobby] resetIfFinishedOlderThan(0) ->", didReset);
+          
+          // If that didn't work, try force resetting
+          if (!didReset && typeof gs.forceResetToLobby === "function") {
+            gs.forceResetToLobby();
+            console.log("[lobby] forceResetToLobby called");
+          }
+        }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn("[lobby] reset check failed:", e);
+    }
+
+    // Update player ready status AFTER any reset (reset clears ready flags)
+    updatePlayerReady(playerId, name, ready);
+    console.log("[lobby] player updated:", { playerId, name, ready });
 
     // Update player color if provided (best-effort, avoid throwing)
     if (typeof color === "string" && color.trim()) {
@@ -65,28 +83,39 @@ export async function POST(request: NextRequest) {
       // Only start when all players are ready. Allow single-player starts
       // so a user can play alone if they choose — the server-side logic
       // contains safety checks to avoid duplicate matches across instances.
-      if (checkAllReady()) {
-        try {
-          const playersNow = getRoomState();
-          if (playersNow.length >= 1) {
-            try {
-              // eslint-disable-next-line @typescript-eslint/no-var-requires
-              const gs = require("@/lib/gameState");
-              if (gs && typeof gs.startRace === "function") {
-                // fire-and-forget; startRace contains its own safety/claim logic
-                gs.startRace().catch((err: any) =>
-                  console.warn("[lobby] startRace() failed:", err)
-                );
-              }
-            } catch (e) {
-              console.warn("[lobby] failed to call startRace():", e);
+      const allReady = checkAllReady();
+      const playersNow = getRoomState();
+      const currentGameState = getGameState();
+      
+      console.log("[lobby] readiness check:", {
+        allReady,
+        playerCount: playersNow.length,
+        gameState: currentGameState,
+        players: playersNow.map(p => ({ id: p.id, name: p.name, ready: p.ready })),
+      });
+      
+      if (allReady && currentGameState === "lobby") {
+        if (playersNow.length >= 1) {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const gs = require("@/lib/gameState");
+            if (gs && typeof gs.startRace === "function") {
+              console.log("[lobby] attempting to start race...");
+              // fire-and-forget; startRace contains its own safety/claim logic
+              gs.startRace().catch((err: any) =>
+                console.warn("[lobby] startRace() failed:", err)
+              );
             }
-          } else {
-            // not enough players yet; do nothing
+          } catch (e) {
+            console.warn("[lobby] failed to call startRace():", e);
           }
-        } catch (e) {}
+        } else {
+          console.log("[lobby] not enough players to start");
+        }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn("[lobby] readiness check failed:", e);
+    }
 
     // Clean up any inactive players who may have disconnected while in the lobby.
     try {

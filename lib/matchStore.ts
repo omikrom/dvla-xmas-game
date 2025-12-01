@@ -16,7 +16,8 @@ let cachedMatchToken: string | null = null;
 let cachedMatchOwner: string | null = null;
 let cachedMatchSnapshot: any = null;
 let cachedMatchFetchedAt = 0;
-const LOCAL_CACHE_MS = Number(process.env.MATCHSTORE_CACHE_MS || 250);
+// Reduced cache TTL for faster cross-worker sync in serverless environment
+const LOCAL_CACHE_MS = Number(process.env.MATCHSTORE_CACHE_MS || 50);
 
 function nowMs() {
   try {
@@ -89,6 +90,9 @@ export async function claimMatchToken(
   ttlMs: number,
   ownerId?: string
 ) {
+  // Owner uses a short TTL (5 seconds) that gets refreshed frequently.
+  // This allows quick takeover if owner dies.
+  const OWNER_TTL_MS = 5000;
   try {
     const r = await getRedisClient();
     // If a REDIS_URL is configured but we failed to obtain a client,
@@ -111,7 +115,8 @@ export async function claimMatchToken(
         if (res === "OK") {
           if (ownerId) {
             try {
-              await r.set(`${KEY}:owner`, ownerId, { PX: ttlMs + 60000 });
+              // Use short TTL for owner key so other workers can take over quickly
+              await r.set(`${KEY}:owner`, ownerId, { PX: OWNER_TTL_MS });
             } catch (err) {
               console.warn("[matchStore] redis set owner failed", String(err));
             }
@@ -135,6 +140,7 @@ export async function claimMatchToken(
   if (kv) {
     try {
       const exSeconds = Math.ceil((ttlMs + 60000) / 1000);
+      const ownerExSeconds = Math.ceil(OWNER_TTL_MS / 1000);
       let res: any = null;
       if (typeof kvClient.set === "function") {
         try {
@@ -146,7 +152,8 @@ export async function claimMatchToken(
       if (res === "OK" || res === true) {
         if (ownerId && typeof kvClient.set === "function") {
           try {
-            await kvClient.set(`${KEY}:owner`, ownerId, { ex: exSeconds });
+            // Use short TTL for owner key
+            await kvClient.set(`${KEY}:owner`, ownerId, { ex: ownerExSeconds });
           } catch (err) {
             console.warn("[matchStore] KV set owner failed", String(err));
           }
@@ -425,11 +432,14 @@ export async function getMatchSnapshot() {
 }
 
 export async function refreshMatchOwner(ownerId: string, ttlMs: number) {
+  // Use a short TTL (5 seconds) that the owner refreshes frequently.
+  // This allows other workers to take over quickly if the owner dies.
+  const OWNER_TTL_MS = 5000;
   try {
     const r = await getRedisClient();
     if (r) {
       try {
-        await r.set(`${KEY}:owner`, ownerId, { PX: ttlMs + 60000 });
+        await r.set(`${KEY}:owner`, ownerId, { PX: OWNER_TTL_MS });
         cachedMatchOwner = ownerId;
         cachedMatchFetchedAt = Date.now();
         return true;
@@ -443,7 +453,7 @@ export async function refreshMatchOwner(ownerId: string, ttlMs: number) {
     const kv = await getKvClient();
     if (kv) {
       try {
-        const exSeconds = Math.ceil((ttlMs + 60000) / 1000);
+        const exSeconds = Math.ceil(OWNER_TTL_MS / 1000);
         if (typeof kvClient.set === "function") {
           await kvClient.set(`${KEY}:owner`, ownerId, { ex: exSeconds });
           return true;

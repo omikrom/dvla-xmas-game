@@ -2,6 +2,7 @@
 
 import type { DebrisState, DestructibleState } from "../../types";
 import MyBuilding from "../MyBuilding";
+import DVLABuildingDestructible from "../DVLABuildingDestructible";
 import { ChristmasTree } from "./props/ChristmasTree";
 import { Snowman } from "./props/Snowman";
 import { CandyCane } from "./props/CandyCane";
@@ -203,11 +204,9 @@ export function DestructibleField({
   return (
     <>
       {destructibles.map((item) => {
-        // Skip server-only landmark destructible which is rendered as
-        // the dedicated `DVLABuilding` component in the scene to avoid
-        // duplicate visuals and nested colliders.
-        if (item.id === "dvlab-main") return null;
         const position: [number, number, number] = [item.x, 0, item.y];
+        // Check for DVLA building model type
+        const modelType = (item as any).model;
 
         const angle = idToAngle(item.id);
 
@@ -273,6 +272,18 @@ export function DestructibleField({
                     />
                   );
                 default:
+                  // Check if this is a DVLA building
+                  if (modelType === "dvla" || item.id?.startsWith("dvlab")) {
+                    return (
+                      <DVLABuildingDestructible
+                        position={position}
+                        destroyed={item.destroyed}
+                        health={item.health}
+                        maxHealth={item.maxHealth}
+                        lastHitAt={item.lastHitAt}
+                      />
+                    );
+                  }
                   return (
                     <MyBuilding
                       position={position}

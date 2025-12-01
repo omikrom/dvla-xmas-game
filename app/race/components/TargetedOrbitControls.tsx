@@ -27,8 +27,11 @@ export default function TargetedOrbitControls({
   maxPolarAngle = Math.PI / 2.5,
 }: Props) {
   const ref = useRef<any>(null);
+  // Smoothed target position to avoid jumps from raw server data
+  const smoothedTarget = useRef(new THREE.Vector3());
+  const initialized = useRef(false);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const ctrl = ref.current;
     if (!ctrl) return;
 
@@ -52,8 +55,25 @@ export default function TargetedOrbitControls({
       desired.copy(ctrl.target || new THREE.Vector3());
     }
 
-    // Smoothly lerp the controls target towards the desired position
-    ctrl.target.lerp(desired, lerp);
+    // Initialize smoothed target on first frame
+    if (!initialized.current && playerCar) {
+      smoothedTarget.current.copy(desired);
+      ctrl.target.copy(desired);
+      initialized.current = true;
+    }
+
+    // First, smooth the desired position to handle server position jumps
+    // This creates a double-smoothing effect: raw -> smoothed -> camera target
+    const preSmoothFactor = 6; // How fast to track raw server position
+    const preSmoothing = 1 - Math.exp(-preSmoothFactor * delta);
+    smoothedTarget.current.lerp(desired, preSmoothing);
+
+    // Then smoothly lerp the controls target towards the pre-smoothed position
+    // Use frame-rate independent exponential smoothing
+    const cameraTrackFactor = 8; // How fast camera tracks the smoothed position
+    const cameraSmoothing = 1 - Math.exp(-cameraTrackFactor * delta);
+    ctrl.target.lerp(smoothedTarget.current, cameraSmoothing);
+    
     if (ctrl.update) ctrl.update();
   });
 

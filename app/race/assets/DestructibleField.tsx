@@ -287,10 +287,6 @@ export function DestructibleField({
           Custom = undefined;
         }
 
-        // Skip server-side DVLA landmark to avoid duplicating the
-        // `DVLABuilding` visual and colliders that are placed in the scene.
-        if (item.id === "dvlab-main") return null;
-
         return (
           <group key={item.id}>
             {Custom ? (

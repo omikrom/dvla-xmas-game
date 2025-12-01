@@ -17,6 +17,7 @@ import {
   CLIENT_BIG_CORRECTION_DIST,
   CLIENT_BIG_CORRECTION_MAX_MS,
   CLIENT_POS_SMOOTH_TAU_MS,
+  CLIENT_ANGLE_SMOOTH_MULTIPLIER,
 } from "@/lib/physicsConstants";
 
 // helper: simulate a single step of our simple client-side physics
@@ -320,8 +321,11 @@ export default function InterpolatedCarSimple({
       }
 
       // apply exponential low-pass to reduce jitter
-      const tau = (CLIENT_POS_SMOOTH_TAU_MS || 80) / 1000;
-      const alpha = 1 - Math.exp(-dt / Math.max(1e-6, tau));
+      // Use separate smoothing for position and rotation
+      const posTau = (CLIENT_POS_SMOOTH_TAU_MS || 100) / 1000;
+      const angleTau = posTau * (CLIENT_ANGLE_SMOOTH_MULTIPLIER || 2.0); // smoother rotation
+      const posAlpha = 1 - Math.exp(-dt / Math.max(1e-6, posTau));
+      const angleAlpha = 1 - Math.exp(-dt / Math.max(1e-6, angleTau));
       if (targetPos) {
         if (!renderRef.current)
           renderRef.current = {
@@ -331,13 +335,14 @@ export default function InterpolatedCarSimple({
             angle: targetPos.angle,
           };
         else {
-          renderRef.current.x += (targetPos.x - renderRef.current.x) * alpha;
-          renderRef.current.y += (targetPos.y - renderRef.current.y) * alpha;
-          renderRef.current.z += (targetPos.z - renderRef.current.z) * alpha;
+          renderRef.current.x += (targetPos.x - renderRef.current.x) * posAlpha;
+          renderRef.current.y += (targetPos.y - renderRef.current.y) * posAlpha;
+          renderRef.current.z += (targetPos.z - renderRef.current.z) * posAlpha;
+          // Smooth angle with wrap-around handling
           let da = targetPos.angle - renderRef.current.angle;
           if (da > Math.PI) da -= Math.PI * 2;
           if (da < -Math.PI) da += Math.PI * 2;
-          renderRef.current.angle += da * alpha;
+          renderRef.current.angle += da * angleAlpha;
         }
         g.position.x = renderRef.current.x;
         g.position.z = renderRef.current.y;

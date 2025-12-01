@@ -92,7 +92,7 @@ export default function InterpolatedCar({
     // allow runtime overrides from the InterpTuner (window.__GAME_TUNER)
     const tuner =
       typeof window !== "undefined" ? (window as any).__GAME_TUNER || {} : {};
-    const defaultDelay = 220;
+    const defaultDelay = 350; // increased to cover ~300ms RTT
     const delayFromRef =
       interpolationDelayRef && typeof interpolationDelayRef.current === "number"
         ? interpolationDelayRef.current
@@ -168,22 +168,51 @@ export default function InterpolatedCar({
 
     if (isLocal) {
       // Local player: prefer immediate server-reported props (car.x/y)
-      // plus a light prediction offset so controls feel responsive. Avoid
-      // buffering the local player's visual to keep reaction time low.
+      // plus a more aggressive prediction offset so controls feel responsive.
+      // Avoid buffering the local player's visual to keep reaction time low.
       sampledX = car.x;
       sampledY = car.y;
       sampledZ = car.z ?? 0.3;
       sampledAngle = car.angle;
+      
       try {
-        // Apply a short forward-prediction for the local player to make
-        // controls feel snappy without changing authoritative state.
+        // Apply forward-prediction based on current speed AND input
+        // to make controls feel snappy without changing authoritative state.
         const rawExtra = typeof tuner.extraPredict === "number" ? tuner.extraPredict : null;
         const extraSec = rawExtra != null ? (rawExtra > 2 ? rawExtra / 1000 : rawExtra) : Math.min(0.18, approxOneWay / 1000);
-        const speed = typeof (car as any).speed === "number" ? (car as any).speed : 0;
-        const predDx = -Math.sin(car.angle || 0) * speed * extraSec;
-        const predDy = -Math.cos(car.angle || 0) * speed * extraSec;
-        sampledX += predDx;
-        sampledY += predDy;
+        const serverSpeed = typeof (car as any).speed === "number" ? (car as any).speed : 0;
+        
+        // Also apply input-based prediction for more responsive feel
+        const inp = playerInputRef?.current;
+        if (inp) {
+          const inputThrottle = inp.throttle || 0;
+          const inputSteer = inp.steer || 0;
+          
+          // Predict position based on current velocity
+          const predDx = -Math.sin(car.angle || 0) * serverSpeed * extraSec;
+          const predDy = -Math.cos(car.angle || 0) * serverSpeed * extraSec;
+          sampledX += predDx;
+          sampledY += predDy;
+          
+          // Additional input-driven prediction to reduce perceived lag
+          // This adds a small offset in the direction the player is trying to go
+          const inputPredSec = extraSec * 0.5; // lighter weight for input prediction
+          const maxInputSpeed = typeof tuner.predSpeed === "number" ? tuner.predSpeed : 8;
+          const inputSpeed = inputThrottle * maxInputSpeed;
+          const inputPredDx = -Math.sin(sampledAngle) * inputSpeed * inputPredSec;
+          const inputPredDy = -Math.cos(sampledAngle) * inputSpeed * inputPredSec;
+          sampledX += inputPredDx;
+          sampledY += inputPredDy;
+          
+          // Small steering prediction
+          sampledAngle += inputSteer * 0.15 * inputPredSec;
+        } else {
+          // Fallback: just use server speed
+          const predDx = -Math.sin(car.angle || 0) * serverSpeed * extraSec;
+          const predDy = -Math.cos(car.angle || 0) * serverSpeed * extraSec;
+          sampledX += predDx;
+          sampledY += predDy;
+        }
       } catch (e) {}
     } else if (snaps.length === 0) {
       // no snapshots yet — fall back to last-known server position (car prop)
@@ -300,9 +329,8 @@ export default function InterpolatedCar({
     }
 
     // Compute a smoothing alpha based on frame delta so interpolation is
-    // framerate-independent. Use a slightly snappier factor but allow the
-    // buffered interpolation to do the heavy lifting for smoothness.
-    const alpha = Math.min(1, 1 - Math.exp(-delta * 12));
+    // framerate-independent. Use a gentler factor for smoother motion.
+    const alpha = Math.min(1, 1 - Math.exp(-delta * 6)); // reduced from 12 for smoother blending
 
     // Teleport or smoothly correct visual drift depending on magnitude.
     const dx = sampledX - groupRef.current.position.x;
@@ -312,11 +340,11 @@ export default function InterpolatedCar({
     const TELEPORT_THRESHOLD =
       typeof tuner.teleportThreshold === "number"
         ? tuner.teleportThreshold
-        : 30;
+        : 50; // increased - only teleport for very large jumps
     const CORRECT_THRESHOLD =
-      typeof tuner.correctThreshold === "number" ? tuner.correctThreshold : 20;
+      typeof tuner.correctThreshold === "number" ? tuner.correctThreshold : 35; // increased to allow smoother corrections
     const CORRECTION_MS =
-      typeof tuner.correctionMs === "number" ? tuner.correctionMs : 60;
+      typeof tuner.correctionMs === "number" ? tuner.correctionMs : 150; // increased for smoother correction
 
     // update target rotation early
     targetRot.current = sampledAngle;
@@ -378,22 +406,28 @@ export default function InterpolatedCar({
         const targetZ = sampledY;
         const curX = groupRef.current.position.x;
         const curZ = groupRef.current.position.z;
-        // frame-independent lerp alpha
-        const lerpAlpha = Math.min(1, 1 - Math.exp(-delta * 10));
-        const stepX = (targetX - curX) * lerpAlpha;
-        const stepZ = (targetZ - curZ) * lerpAlpha;
+        const desiredMoveX = targetX - curX;
+        const desiredMoveZ = targetZ - curZ;
+        const desiredLen = Math.hypot(desiredMoveX, desiredMoveZ);
+        
+        // Use exponential smoothing with slower factor for large gaps
+        const baseSmoothFactor = 4;
+        const largeGapThreshold = 5;
+        const smoothFactor = desiredLen > largeGapThreshold ? baseSmoothFactor * 0.5 : baseSmoothFactor;
+        const lerpAlpha = Math.min(1, 1 - Math.exp(-delta * smoothFactor));
+        
+        let stepX = desiredMoveX * lerpAlpha;
+        let stepZ = desiredMoveZ * lerpAlpha;
         const stepLen = Math.hypot(stepX, stepZ);
-        const maxMoveSpeed = typeof tuner.maxMoveSpeed === "number" ? tuner.maxMoveSpeed : 40;
+        const maxMoveSpeed = typeof tuner.maxMoveSpeed === "number" ? tuner.maxMoveSpeed : 18;
         const maxMove = Math.max(0.001, maxMoveSpeed * delta);
-        let finalStepX = stepX;
-        let finalStepZ = stepZ;
         if (stepLen > maxMove) {
           const s = maxMove / stepLen;
-          finalStepX = stepX * s;
-          finalStepZ = stepZ * s;
+          stepX *= s;
+          stepZ *= s;
         }
-        groupRef.current.position.x = curX + finalStepX;
-        groupRef.current.position.z = curZ + finalStepZ;
+        groupRef.current.position.x = curX + stepX;
+        groupRef.current.position.z = curZ + stepZ;
         groupRef.current.position.y = sampledZ;
         positionsRef.current.set(car.id, {
           x: groupRef.current.position.x,
@@ -455,13 +489,13 @@ export default function InterpolatedCar({
           auth.z = sampledY;
         }
         const authLambda =
-          typeof tuner.authLambda === "number" ? tuner.authLambda : 18;
+          typeof tuner.authLambda === "number" ? tuner.authLambda : 10; // reduced from 18 for smoother tracking
         const authSmoothing = 1 - Math.exp(-delta * authLambda);
         auth.x += (sampledX - auth.x) * authSmoothing;
         auth.z += (sampledY - auth.z) * authSmoothing;
 
         const lambda =
-          typeof tuner.offsetLambda === "number" ? tuner.offsetLambda : 9;
+          typeof tuner.offsetLambda === "number" ? tuner.offsetLambda : 5; // reduced from 9 for gentler offset decay
         const smoothing = 1 - Math.exp(-delta * lambda);
 
         // Exponential decay of offset toward zero (frame-rate independent)
@@ -490,41 +524,50 @@ export default function InterpolatedCar({
         const desiredMoveZ = appliedZ - curZ;
         const desiredLen = Math.hypot(desiredMoveX, desiredMoveZ);
 
-        // Base max move speed (units/sec), tunable
+        // Base max move speed (units/sec), tunable - significantly reduced for ultra-smooth motion
         const baseSpeed =
           typeof tuner.maxMoveSpeed === "number"
             ? tuner.maxMoveSpeed
             : isMobile
-            ? 22
-            : 40;
+            ? 12
+            : 18; // significantly reduced for smoother visual motion
         // Scale move speed based on authoritative object speed so faster cars
         // can be reconciled without excessive clamping.
         const speedFactor =
           typeof tuner.moveSpeedFactor === "number"
             ? tuner.moveSpeedFactor
-            : 2.0;
+            : 1.2; // reduced from 1.5
         const effectiveBaseSpeed = Math.max(baseSpeed, authSpeed * speedFactor);
-        // Adaptive reach time (ms) - how quickly we want to reach a large gap
-        const reachMs =
-          typeof tuner.adaptiveReachMs === "number"
-            ? tuner.adaptiveReachMs
-            : 120;
-        // desired speed to cover the gap in ~reachMs
-        const desiredSpeed = desiredLen / Math.max(0.001, reachMs / 1000);
-        const maxCap = Math.max(effectiveBaseSpeed * 6, effectiveBaseSpeed + 1);
-        const appliedSpeed = Math.min(
-          Math.max(effectiveBaseSpeed, desiredSpeed),
-          maxCap
-        );
-        const maxMove = Math.max(0.001, appliedSpeed * delta);
-
-        let moveX = desiredMoveX;
-        let moveZ = desiredMoveZ;
-        if (desiredLen > maxMove) {
-          const s = maxMove / desiredLen;
+        
+        // Use exponential smoothing for position instead of linear clamping
+        // This creates much smoother visual motion by gradually approaching target
+        const smoothFactor = typeof tuner.positionSmoothFactor === "number" 
+          ? tuner.positionSmoothFactor 
+          : 4; // lower = smoother but more lag
+        const posSmoothing = 1 - Math.exp(-delta * smoothFactor);
+        
+        // For large deltas, use even slower smoothing to prevent visual jumps
+        const largeGapThreshold = typeof tuner.largeGapThreshold === "number"
+          ? tuner.largeGapThreshold
+          : 5; // units
+        const smoothingForGap = desiredLen > largeGapThreshold 
+          ? posSmoothing * 0.5 // halve the speed for large gaps
+          : posSmoothing;
+        
+        // Calculate movement using exponential smoothing
+        let moveX = desiredMoveX * smoothingForGap;
+        let moveZ = desiredMoveZ * smoothingForGap;
+        
+        // Still apply a hard cap on per-frame movement to prevent any jumps
+        const moveLen = Math.hypot(moveX, moveZ);
+        const maxCap = Math.max(effectiveBaseSpeed * 2, effectiveBaseSpeed + 1); // reduced multiplier from 6 to 2
+        const maxMove = Math.max(0.001, maxCap * delta);
+        if (moveLen > maxMove) {
+          const s = maxMove / moveLen;
           moveX *= s;
           moveZ *= s;
         }
+        
         groupRef.current.position.x = curX + moveX;
         groupRef.current.position.z = curZ + moveZ;
         groupRef.current.position.y = sampledZ;
@@ -646,11 +689,17 @@ export default function InterpolatedCar({
       }
     } catch (e) {}
 
+    // Smooth rotation interpolation (frame-rate independent)
     const currentRotY = groupRef.current.rotation.y;
     let angleDiff = targetRot.current - currentRotY;
     if (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     if (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-    groupRef.current.rotation.y += angleDiff * 0.1;
+    // Use exponential smoothing for rotation - factor of 8 gives smooth but responsive turning
+    const rotSmoothFactor = typeof tuner.rotationSmoothFactor === "number" 
+      ? tuner.rotationSmoothFactor 
+      : 8;
+    const rotSmoothing = 1 - Math.exp(-delta * rotSmoothFactor);
+    groupRef.current.rotation.y += angleDiff * rotSmoothing;
   });
 
   const isSpeedActive = !!car.activePowerUps?.some(

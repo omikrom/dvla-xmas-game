@@ -21,5 +21,7 @@ export const CLIENT_BIG_CORRECTION_MAX_MS = Number(
 );
 // Position smoothing time constant for remote players (ms). Lower = more reactive, higher = smoother.
 export const CLIENT_POS_SMOOTH_TAU_MS = Number(
-  process.env.CLIENT_POS_SMOOTH_TAU_MS || 80
+  process.env.CLIENT_POS_SMOOTH_TAU_MS || 100
 );
+// Angle smoothing multiplier (rotation smooths slower than position for less jerky turning)
+export const CLIENT_ANGLE_SMOOTH_MULTIPLIER = 2.0;

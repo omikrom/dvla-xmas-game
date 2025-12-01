@@ -1,6 +1,7 @@
 "use client";
 
 import MyBuilding from "./MyBuilding";
+import DVLABuildingDestructible from "./DVLABuildingDestructible";
 
 // Registry of custom destructible components.
 // Add your components here keyed by a short identifier you will use in the
@@ -9,6 +10,9 @@ export const destructibleRegistry: Record<string, any> = {
   // Example: when a destructible has `id: 'mybuilding-1'` or `type: 'mybuilding'`
   // the `MyBuilding` component will be used to render it.
   mybuilding: MyBuilding,
+  // DVLA building - large destructible landmark
+  dvla: DVLABuildingDestructible,
+  dvlab: DVLABuildingDestructible,
 };
 
 export function resolveDestructibleComponent(key?: string) {

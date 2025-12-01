@@ -885,23 +885,33 @@ function RaceClient() {
       // Exponential backoff state for transient network errors
       let backoff = 0;
       // Ensure reasonable runtime tuner defaults so we can tweak live
+      // Optimized for ~120ms Vercel edge function response time
       try {
         (window as any).__GAME_TUNER = (window as any).__GAME_TUNER || {};
         const gt = (window as any).__GAME_TUNER;
         const defaults: Record<string, any> = {
-          interpolationDelay: 220,
-          safetyMarginMs: 30,
-          extraPredict: 0.14,
-          authLambda: 18,
-          offsetLambda: 9,
-          offsetSafetyFactor: 1.5,
-          maxOffset: 40,
-          moveSpeedFactor: 2.0,
-          maxMoveSpeed: 40,
-          localBlend: 0.6,
-          adaptiveReachMs: 120,
-          tangentScale: 0.6,
+          // Reduced interpolation delay - we're using better snapshot sync now
+          interpolationDelay: 150,
+          safetyMarginMs: 20,
+          // Increased prediction for local player to compensate for latency
+          extraPredict: 0.18,
+          authLambda: 10, // reduced for smoother tracking
+          offsetLambda: 5, // reduced for gentler offset decay
+          offsetSafetyFactor: 1.3,
+          maxOffset: 50,
+          moveSpeedFactor: 1.2, // reduced for smoother motion
+          maxMoveSpeed: 18, // reduced for smoother motion
+          localBlend: 0.7,
+          positionSmoothFactor: 4, // exponential smoothing factor for position
+          largeGapThreshold: 5, // threshold for extra smoothing
+          rotationSmoothFactor: 8, // smoothing factor for rotation
+          tangentScale: 0.7,
           useSnapless: true,
+          // Use simpler interpolation for more predictable behavior
+          useSimpleInterp: false,
+          // Local player prediction parameters
+          predSpeed: 8,
+          predDt: 100,
         };
         for (const k of Object.keys(defaults)) {
           if (typeof gt[k] === "undefined") gt[k] = defaults[k];
@@ -1012,13 +1022,12 @@ function RaceClient() {
                   const prev = rttRef.current || rtt;
                   // simple EMA smoothing
                   rttRef.current = Math.round(prev * 0.75 + rtt * 0.25);
-                  // set interpolation delay to half RTT + cushion (ms)
-                  // Raise the minimum interpolation delay to reduce extrapolation
-                  // at moderate RTTs (e.g. ~120ms). This trades a bit of input
-                  // responsiveness for visual smoothness.
+                  // set interpolation delay based on RTT
+                  // With improved snapshot sync (100ms) and reduced cache TTL (50ms),
+                  // we can use a lower delay. Target: one-way latency + small buffer
                   interpolationDelayRef.current = Math.min(
-                    300,
-                    Math.max(150, Math.round(rttRef.current / 2 + 40))
+                    200, // reduced max from 300ms
+                    Math.max(100, Math.round(rttRef.current / 2 + 30)) // reduced min from 150ms, cushion from 40ms
                   );
                 } catch (e) {}
               } else {
@@ -1132,8 +1141,9 @@ function RaceClient() {
                 // stepping when server updates are sparse or bursty.
                 const prevTs = prev ? prev.ts : 0;
                 const gapMs = safeTs - prevTs;
-                const FILL_SPACING_MS = isMobile ? 40 : 60; // desired spacing for filler samples (smaller spacing -> smoother)
-                const MAX_FILL = isMobile ? 12 : 8; // cap how many filler samples to insert
+                // Reduced spacing for more samples (smoother interpolation)
+                const FILL_SPACING_MS = isMobile ? 30 : 40; // desired spacing for filler samples (smaller spacing -> smoother)
+                const MAX_FILL = isMobile ? 16 : 12; // increased cap for smoother motion
                 if (prev && gapMs > FILL_SPACING_MS * 1.25) {
                   // compute number of intermediate samples (exclude endpoints)
                   const approx = Math.floor(gapMs / FILL_SPACING_MS) - 1;
@@ -1380,10 +1390,9 @@ function RaceClient() {
             // reset backoff on success
             backoff = 0;
             // Ensure we don't poll faster than the owner's snapshot cadence
-            // (owner saves every ~200ms). Use a conservative lower bound so
-            // remote clients don't request updates more frequently than
-            // the server will produce them.
-            nextDelay = Math.max(nextDelay, 150);
+            // (owner saves every ~100ms now). With reduced snapshot interval
+            // and cache TTL, we can poll faster for better responsiveness.
+            nextDelay = Math.max(nextDelay, 100);
             // sleep until next iteration
             if (!mounted) break;
             await sleep(nextDelay);
@@ -2266,106 +2275,162 @@ function RaceClient() {
               }}
             >
               <CameraAspectUpdater width={canvasSize.w} height={canvasSize.h} />
-              {/* Background & lighting adapt to nightMode */}
+              {/* Background & lighting adapt to nightMode - deep winter blues */}
               <color
                 attach="background"
-                args={[nightMode ? "#020217" : "#020617"]}
+                args={[nightMode ? "#030712" : "#0c1929"]}
               />
               {/* Scene fog for depth / snow haze. Controlled by debug UI (toggle with ` key). */}
               {fogMode === "exp2" && (
-                // FogExp2: soft exponential haze tuned by density
-                <fogExp2 attach="fog" args={[0x0d0d1a, fogDensity]} />
+                // FogExp2: soft exponential haze tuned by density - wintery blue-white
+                <fogExp2 attach="fog" args={[nightMode ? 0x0a1628 : 0x1e3a5f, fogDensity]} />
               )}
               {fogMode === "linear" && (
                 // Linear fog: start/end (useful when camera is far away)
-                <fog attach="fog" args={[0x0d0d1a, fogStart, fogEnd]} />
+                <fog attach="fog" args={[nightMode ? 0x0a1628 : 0x1e3a5f, fogStart, fogEnd]} />
               )}
               {/* Lighting — values adjust when nightMode is active */}
-              {}
+              {/* Warm ambient for cozy Christmas feel */}
               <ambientLight
-                intensity={nightMode ? 0.25 : 0.45}
-                color="#fef9c3"
+                intensity={nightMode ? 0.2 : 0.35}
+                color={nightMode ? "#c7d2fe" : "#fef3c7"}
               />
+              {/* Sky/ground contrast - cool sky, warm snow reflection */}
               <hemisphereLight
-                color="#f8fafc"
-                groundColor="#0f172a"
-                intensity={nightMode ? 0.25 : 0.45}
+                color={nightMode ? "#312e81" : "#e0f2fe"}
+                groundColor={nightMode ? "#1e3a5f" : "#fef3c7"}
+                intensity={nightMode ? 0.35 : 0.5}
               />
+              {/* Main sun/moon light */}
               <directionalLight
-                position={[20, 30, 20]}
-                intensity={nightMode ? 0.6 : 0.9}
-                color={nightMode ? "#e8f3ff" : "#fff7ed"}
+                position={[25, 35, 20]}
+                intensity={nightMode ? 0.5 : 0.85}
+                color={nightMode ? "#c7d2fe" : "#fff7ed"}
                 castShadow
                 shadow-mapSize-width={2048}
                 shadow-mapSize-height={2048}
-                shadow-camera-far={50}
-                shadow-camera-left={-30}
-                shadow-camera-right={30}
-                shadow-camera-top={30}
-                shadow-camera-bottom={-30}
+                shadow-camera-far={60}
+                shadow-camera-left={-40}
+                shadow-camera-right={40}
+                shadow-camera-top={40}
+                shadow-camera-bottom={-40}
                 shadow-bias={-0.0005}
                 shadow-normalBias={0.05}
                 shadow-radius={2}
               />
+              {/* Warm golden spotlight - like Christmas star */}
               <spotLight
-                position={[0, 45, 10]}
-                intensity={0.95}
-                angle={Math.PI / 5}
-                penumbra={0.6}
-                decay={1.5}
-                color="#fde68a"
+                position={[0, 50, 15]}
+                intensity={nightMode ? 1.2 : 0.8}
+                angle={Math.PI / 4}
+                penumbra={0.7}
+                decay={1.2}
+                color="#fcd34d"
                 castShadow
                 shadow-bias={-0.0005}
                 shadow-normalBias={0.02}
               />
+              {/* Cool fill light from behind */}
               <spotLight
-                position={[0, 35, -25]}
-                intensity={0.85}
-                angle={Math.PI / 6}
-                penumbra={0.7}
-                decay={1.3}
-                color="#c7d2fe"
-                castShadow
-                shadow-bias={-0.0006}
-                shadow-normalBias={0.02}
+                position={[0, 30, -30]}
+                intensity={nightMode ? 0.6 : 0.5}
+                angle={Math.PI / 5}
+                penumbra={0.8}
+                decay={1.5}
+                color="#93c5fd"
+                castShadow={false}
               />
+              
+              {/* === CHRISTMAS ACCENT LIGHTS === */}
+              {/* Red Christmas lights - scattered around */}
               {[
-                [-15, 6, 0],
-                [15, 6, 0],
-                [0, 4, 18],
+                [-25, 3, -20],
+                [30, 3, 15],
+                [-15, 3, 35],
+                [40, 3, -35],
               ].map((pos, idx) => (
                 <pointLight
-                  key={`track-glow-${idx}`}
+                  key={`xmas-red-${idx}`}
                   position={pos as [number, number, number]}
-                  intensity={0.6}
-                  distance={30}
-                  color={idx === 2 ? "#fbbf24" : "#38bdf8"}
-                  castShadow={idx === 2}
+                  intensity={nightMode ? 2.5 : 1.5}
+                  distance={25}
+                  decay={2}
+                  color="#ef4444"
                 />
               ))}
-              <Environment preset="sunset" blur={0.65} />
+              {/* Green Christmas lights - scattered around */}
+              {[
+                [20, 3, -25],
+                [-35, 3, 10],
+                [10, 3, 40],
+                [-40, 3, -40],
+              ].map((pos, idx) => (
+                <pointLight
+                  key={`xmas-green-${idx}`}
+                  position={pos as [number, number, number]}
+                  intensity={nightMode ? 2.5 : 1.5}
+                  distance={25}
+                  decay={2}
+                  color="#22c55e"
+                />
+              ))}
+              {/* Gold/warm white lights near center */}
+              {[
+                [-8, 4, 0],
+                [8, 4, 0],
+                [0, 4, 20],
+                [0, 4, -20],
+              ].map((pos, idx) => (
+                <pointLight
+                  key={`xmas-gold-${idx}`}
+                  position={pos as [number, number, number]}
+                  intensity={nightMode ? 2.0 : 1.2}
+                  distance={20}
+                  decay={2}
+                  color="#fbbf24"
+                />
+              ))}
+              {/* Blue accent lights for icy feel */}
+              {[
+                [-50, 5, 0],
+                [50, 5, 0],
+                [0, 5, 50],
+                [0, 5, -50],
+              ].map((pos, idx) => (
+                <pointLight
+                  key={`xmas-blue-${idx}`}
+                  position={pos as [number, number, number]}
+                  intensity={nightMode ? 1.8 : 1.0}
+                  distance={35}
+                  decay={2}
+                  color="#38bdf8"
+                />
+              ))}
+              
+              {/* Winter night environment */}
+              <Environment preset={nightMode ? "night" : "sunset"} blur={0.7} />
 
               {/* Stars and postprocessing */}
               {nightMode && (
                 <Stars
-                  radius={120}
-                  depth={60}
-                  count={3000}
-                  factor={4}
-                  saturation={0}
+                  radius={150}
+                  depth={80}
+                  count={5000}
+                  factor={5}
+                  saturation={0.1}
                   fade
-                  speed={0.02}
+                  speed={0.3}
                 />
               )}
 
               {/* Postprocessing: Bloom via @react-three/postprocessing */}
               <EffectComposer multisampling={0}>
-                {/* Balanced bloom: slightly higher threshold and lower intensity for subtle glow */}
+                {/* Christmas glow: lower threshold catches colored lights, higher intensity for festive sparkle */}
                 <Bloom
-                  luminanceThreshold={0.75}
-                  luminanceSmoothing={0.12}
-                  intensity={0.55}
-                  radius={0.45}
+                  luminanceThreshold={0.6}
+                  luminanceSmoothing={0.15}
+                  intensity={nightMode ? 0.8 : 0.6}
+                  radius={0.5}
                 />
                 {/* // Runtime TypeError
 Cannot read properties of undefined (reading 'replace')
@@ -2373,8 +2438,8 @@ Cannot read properties of undefined (reading 'replace')
                   blendFunction={1}
                   offset={[0.0006, 0.0012]}
                 /> */}
-                <Vignette eskil={false} offset={0.35} darkness={0.5} />
-                <Noise opacity={0.03} />
+                <Vignette eskil={false} offset={0.3} darkness={nightMode ? 0.6 : 0.45} />
+                <Noise opacity={0.025} />
                 <SMAA />
               </EffectComposer>
 
@@ -2486,8 +2551,7 @@ Cannot read properties of undefined (reading 'replace')
 
                 {/* Map shapes: runtime import removed. Use static map modules when needed. */}
 
-                {/* <DVLABuilding /> */}
-                <DVLABuilding />
+                {/* DVLABuilding is now rendered via DestructibleField as a destructible building */}
                 {/* Custom model from ModelBuilder (temporary test placement) - removed
                       to avoid static duplicates. Destructibles will render MyBuilding
                       via `DestructibleField`. */}
