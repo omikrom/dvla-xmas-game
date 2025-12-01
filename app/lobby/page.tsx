@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
 import SnowOverlay from "../components/SnowOverlay";
+import ChristmasLights from "../components/ChristmasLights";
+import StarryBackground from "../components/StarryBackground";
 
 type LobbyPlayer = {
   id: string;
@@ -15,15 +17,6 @@ type LobbyState = {
   players: LobbyPlayer[];
   gameState: "lobby" | "racing" | "finished";
 };
-
-type ColorPickerProps = {
-  value: string;
-  onChange: (c: string) => void;
-};
-
-// Color picker inline is rendered inside the player list for the current user
-
-// (player header avatar removed; color input is inline in the player list)
 
 export default function LobbyPage() {
   const router = useRouter();
@@ -55,11 +48,9 @@ export default function LobbyPage() {
       id = `player-${Math.random().toString(36).substring(2, 11)}`;
       window.sessionStorage.setItem("playerId", id);
     }
-    // Ensure we have a stored color for this player
     try {
       let col = window.sessionStorage.getItem("playerColor");
       if (!col) {
-        // pick a default color (green) or random nicer palette
         const palette = [
           "#ef4444",
           "#f97316",
@@ -80,7 +71,6 @@ export default function LobbyPage() {
 
   useEffect(() => {
     if (!playerId) return;
-    // Poll lobby state (use ref for playerColor so interval remains stable)
     const interval = setInterval(async () => {
       try {
         const response = await fetch("/api/lobby", {
@@ -106,21 +96,16 @@ export default function LobbyPage() {
               gameState: data.gameState,
             });
           } catch (e) {}
-          // persist match token (if lobby provided one) so race clients can adopt it
           try {
             if (data.matchToken) {
               window.sessionStorage.setItem("matchToken", data.matchToken);
             }
           } catch (e) {}
-          // update lobby UI
           setLobbyState({
             players: data.players || [],
             gameState: data.gameState,
           });
 
-          // If lobby returned a signed matchToken, navigate to the race page
-          // so the race client can include the token in its first `/api/game`
-          // requests and cause the canonical worker to adopt/start the match.
           if (data.matchToken) {
             try {
               router.push(`/race?name=${encodeURIComponent(name)}`);
@@ -132,18 +117,14 @@ export default function LobbyPage() {
       } catch (error) {
         console.error("Error polling lobby:", error);
       }
-    }, 500); // Poll every 500ms
+    }, 500);
 
     return () => clearInterval(interval);
-    // Keep interval stable; playerColor is read from ref instead of dependencies
   }, [playerId, name, isReady, router]);
 
-  // Allow sending color updates when playerColor changes
   useEffect(() => {
     if (!playerId) return;
-    // keep ref current for polling callback
     playerColorRef.current = playerColor;
-    // trigger an immediate update with new color
     (async () => {
       try {
         await fetch("/api/lobby", {
@@ -169,51 +150,106 @@ export default function LobbyPage() {
     lobbyState.players.length > 0 && lobbyState.players.every((p) => p.ready);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-[#064e3b] to-slate-900 text-white flex flex-col items-center justify-center p-8">
-      <div className="max-w-2xl w-full space-y-8">
-        <SnowOverlay count={36} />
-        <div className="text-center relative">
-          <div className="flex items-center justify-center gap-4 mb-2">
-            <h1 className="text-4xl font-extrabold">
-              <span className="text-[#c60f0f]">Grand </span>
-              <span className="text-[#fff]"> Theft</span>{" "}
-              <span className="text-[#c60f0f]"> Giftwrap</span>
-            </h1>
-          </div>
-          <p className="text-slate-300 text-lg italic">
-            “One night. Zero brakes. All Christmas.”
-          </p>
+    <div className="min-h-screen bg-gradient-to-b from-[#0c1445] via-[#1e3a5f] to-[#0f4035] text-white flex flex-col items-center justify-center p-4 md:p-8 overflow-hidden">
+      {/* Background layers */}
+      <StarryBackground count={40} />
+      <ChristmasLights count={20} position="top" />
+      <SnowOverlay count={40} />
 
-          {/* header is unchanged; color avatar moved into player list */}
+      <style>{`
+        @keyframes lobby_pulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.02); }
+        }
+        @keyframes waiting_dots {
+          0%, 20% { opacity: 0; }
+          40% { opacity: 1; }
+          60%, 100% { opacity: 0; }
+        }
+        @keyframes ready_bounce {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-3px); }
+        }
+        @keyframes card_glow {
+          0%, 100% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.3); }
+          50% { box-shadow: 0 0 30px rgba(59, 130, 246, 0.5); }
+        }
+        @keyframes countdown_pulse {
+          0%, 100% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.1); opacity: 0.8; }
+        }
+      `}</style>
+
+      <div className="max-w-2xl w-full space-y-6 relative z-10">
+        {/* Header */}
+        <div className="text-center">
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <span className="text-4xl">🎄</span>
+            <h1 className="text-3xl md:text-4xl font-black">
+              <span className="text-red-500">Grand</span>{" "}
+              <span className="text-white">Theft</span>{" "}
+              <span className="text-green-500">Giftwrap</span>
+            </h1>
+            <span className="text-4xl">🎄</span>
+          </div>
+          <p className="text-slate-400 text-sm">
+            Waiting in the workshop...
+          </p>
         </div>
 
-        <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10">
-          <h2 className="text-2xl font-semibold mb-4">
-            Players ({lobbyState.players.length})
-          </h2>
+        {/* Player List Card */}
+        <div 
+          className="bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-white/10"
+          style={{
+            boxShadow: "0 0 40px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)",
+          }}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <span className="text-2xl">🎅</span>
+              Drivers
+            </h2>
+            <span className="px-3 py-1 bg-white/10 rounded-full text-sm font-medium">
+              {lobbyState.players.length} {lobbyState.players.length === 1 ? "player" : "players"}
+            </span>
+          </div>
+
           <div className="space-y-3">
             {lobbyState.players.length === 0 ? (
-              <p className="text-slate-400 text-center py-4">
-                Waiting for players...
-              </p>
+              <div className="text-center py-8">
+                <div className="text-4xl mb-3">🦌</div>
+                <p className="text-slate-400">
+                  Waiting for drivers
+                  <span style={{ animation: "waiting_dots 1.4s infinite", animationDelay: "0s" }}>.</span>
+                  <span style={{ animation: "waiting_dots 1.4s infinite", animationDelay: "0.2s" }}>.</span>
+                  <span style={{ animation: "waiting_dots 1.4s infinite", animationDelay: "0.4s" }}>.</span>
+                </p>
+              </div>
             ) : (
-              lobbyState.players.map((player) => (
+              lobbyState.players.map((player, index) => (
                 <div
                   key={player.id}
-                  className={`flex items-center justify-between p-4 rounded-lg ${
+                  className={`flex items-center justify-between p-4 rounded-xl transition-all ${
                     player.id === playerId
-                      ? "bg-blue-500/20 border-2 border-blue-500"
-                      : "bg-white/5"
+                      ? "bg-blue-500/20 border-2 border-blue-500/50"
+                      : "bg-white/5 border border-white/5 hover:bg-white/10"
                   }`}
+                  style={player.id === playerId ? { animation: "card_glow 2s ease-in-out infinite" } : {}}
                 >
                   <div className="flex items-center gap-3">
+                    <span className="text-slate-500 text-sm font-mono w-6">
+                      #{index + 1}
+                    </span>
                     {player.id === playerId ? (
                       <>
                         <button
                           onClick={() => colorInputRef.current?.click()}
                           aria-label="Choose your colour"
-                          className="w-8 h-8 rounded-full ring-2 ring-white/20 focus:outline-none hover:scale-105 transition-transform"
-                          style={{ backgroundColor: player.color }}
+                          className="w-10 h-10 rounded-full ring-2 ring-white/30 hover:ring-white/50 focus:outline-none hover:scale-110 transition-all shadow-lg"
+                          style={{ 
+                            backgroundColor: player.color,
+                            boxShadow: `0 0 15px ${player.color}50`,
+                          }}
                         />
                         <input
                           ref={colorInputRef}
@@ -224,7 +260,6 @@ export default function LobbyPage() {
                             try {
                               window.sessionStorage.setItem("playerColor", c);
                             } catch (err) {}
-                            // optimistic local update so the avatar changes immediately
                             setPlayerColor(c);
                             setLobbyState((prev) => ({
                               ...prev,
@@ -239,23 +274,35 @@ export default function LobbyPage() {
                       </>
                     ) : (
                       <div
-                        className="w-8 h-8 rounded-full"
-                        style={{ backgroundColor: player.color }}
+                        className="w-10 h-10 rounded-full shadow-lg"
+                        style={{ 
+                          backgroundColor: player.color,
+                          boxShadow: `0 0 10px ${player.color}30`,
+                        }}
                       />
                     )}
-                    <span className="font-medium">
-                      {player.name}
-                      {player.id === playerId && " (You)"}
-                    </span>
+                    <div>
+                      <span className="font-semibold text-lg">
+                        {player.name}
+                      </span>
+                      {player.id === playerId && (
+                        <span className="ml-2 text-xs text-blue-400 bg-blue-500/20 px-2 py-0.5 rounded-full">
+                          You
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div>
                     {player.ready ? (
-                      <span className="px-4 py-2 bg-green-500 rounded-full text-sm font-semibold">
-                        ✓ Ready
+                      <span 
+                        className="px-4 py-2 bg-green-500/20 border border-green-500/30 rounded-full text-sm font-bold text-green-400 flex items-center gap-2"
+                        style={{ animation: "ready_bounce 1s ease-in-out infinite" }}
+                      >
+                        <span>✓</span> Ready!
                       </span>
                     ) : (
-                      <span className="px-4 py-2 bg-slate-600 rounded-full text-sm">
-                        Not Ready
+                      <span className="px-4 py-2 bg-slate-700/50 rounded-full text-sm text-slate-400">
+                        Waiting...
                       </span>
                     )}
                   </div>
@@ -265,33 +312,77 @@ export default function LobbyPage() {
           </div>
         </div>
 
+        {/* Ready Button */}
         {myPlayer && (
           <div className="text-center space-y-4">
             <button
               onClick={toggleReady}
-              className={`px-8 py-4 rounded-lg font-bold text-xl transition-all transform hover:scale-105 shadow-lg ${
+              className={`w-full md:w-auto px-12 py-5 rounded-xl font-black text-xl transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-xl ${
                 isReady
-                  ? "bg-[#b91c1c] hover:bg-[#a01616]"
-                  : "bg-[#16a34a] hover:bg-[#128836]"
+                  ? "bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800"
+                  : "bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
               }`}
+              style={{
+                boxShadow: isReady 
+                  ? "0 0 30px rgba(220,38,38,0.4)" 
+                  : "0 0 30px rgba(34,197,94,0.4)",
+              }}
             >
-              {isReady ? "Cancel Ready" : "Ready Up!"}
+              {isReady ? (
+                <span className="flex items-center justify-center gap-3">
+                  <span>🛑</span> Cancel Ready
+                </span>
+              ) : (
+                <span className="flex items-center justify-center gap-3">
+                  <span>🏁</span> Ready Up!
+                </span>
+              )}
             </button>
 
             {allReady && (
-              <p className="text-green-400 font-semibold animate-pulse text-lg">
-                All players ready! Starting race...
-              </p>
+              <div 
+                className="inline-flex items-center gap-3 px-6 py-3 bg-green-500/20 border border-green-500/30 rounded-xl"
+                style={{ animation: "countdown_pulse 1s ease-in-out infinite" }}
+              >
+                <span className="text-2xl">🚀</span>
+                <span className="text-green-400 font-bold text-lg">
+                  All ready! Starting race...
+                </span>
+              </div>
             )}
           </div>
         )}
 
-        <div className="text-center text-slate-400 text-sm">
-          <p>Share this page with friends to play together!</p>
-          <p className="mt-2">
-            Race starts when everyone is ready. Single-player starts are allowed
-            so you can play alone if you prefer.
+        {/* Info Footer */}
+        <div className="text-center space-y-2">
+          <div className="flex items-center justify-center gap-4 text-slate-400 text-sm">
+            <span className="flex items-center gap-1">
+              <span>👥</span> Play with friends
+            </span>
+            <span className="text-slate-600">•</span>
+            <span className="flex items-center gap-1">
+              <span>🎮</span> Solo play allowed
+            </span>
+          </div>
+          <p className="text-slate-500 text-xs">
+            Share this page link to invite others!
           </p>
+        </div>
+
+        {/* Decorative bottom */}
+        <div className="flex justify-center gap-2 pt-4">
+          {["🎁", "⭐", "🔔", "❄️", "🎄"].map((emoji, i) => (
+            <span 
+              key={i} 
+              className="text-2xl opacity-50"
+              style={{
+                animation: `ready_bounce ${1 + i * 0.1}s ease-in-out infinite`,
+                animationDelay: `${i * 0.15}s`,
+              }}
+            >
+              {emoji}
+            </span>
+          ))}
         </div>
       </div>
     </div>

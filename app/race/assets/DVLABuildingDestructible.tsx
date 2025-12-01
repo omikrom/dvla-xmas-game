@@ -134,13 +134,17 @@ export default function DVLABuildingDestructible({
     };
   }, [lastHitAt]);
 
+  // Track if initial rotation has been applied to prevent double-application in Strict Mode
+  const rotationApplied = useRef(false);
+
   useLayoutEffect(() => {
     const g = groupRef.current;
-    if (g) {
-      // Same pivot-rotation from original: rotate building 180° around world Y at (0,0,-90)
+    if (g && !rotationApplied.current) {
+      rotationApplied.current = true;
+      // Rotate building 180° around world Y at pivot (0,0,-90)
       const pivot = new THREE.Vector3(0, 0, -90);
       const axis = new THREE.Vector3(0, 1, 0);
-      const angle = -(180 * Math.PI) / 180;
+      const angle = Math.PI; // 180 degrees
       const q = new THREE.Quaternion().setFromAxisAngle(axis, angle);
 
       const pos = g.position.clone().sub(pivot).applyQuaternion(q).add(pivot);

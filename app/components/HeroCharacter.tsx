@@ -26,7 +26,7 @@ export default function HeroCharacter({
   style?: React.CSSProperties;
 }) {
   const defaultStyle: React.CSSProperties = {
-    width: "50%",
+    width: "100%",
     minWidth: 240,
     height: 320,
     pointerEvents: "none",
@@ -42,8 +42,8 @@ export default function HeroCharacter({
     <div className={className} style={mergedStyle}>
       <Canvas
         gl={{ antialias: true, alpha: true }}
-        style={{ width: "100%", height: "100%", background: "transparent" }}
-        camera={{ position: [0, 1.2, 3.6], fov: 40 }}
+        style={{ width: "50%", height: "100%", background: "transparent" }}
+        camera={{ position: [0.7, 1.1, 3.6], fov: 40 }}
       >
         <ambientLight intensity={0.9} />
         <directionalLight position={[5, 5, 2]} intensity={0.9} />

@@ -53,7 +53,8 @@ type DestructibleType =
   | "snowman"
   | "candy"
   | "santa"
-  | "reindeer";
+  | "reindeer"
+  | "penguin";
 type ImpactZone = "front" | "rear" | "left" | "right";
 
 type DebrisChunk = {
@@ -1562,7 +1563,7 @@ function createInitialDestructibles(): Map<string, Destructible> {
       type: "santa",
       x: 0,
       y: 0,
-      radius: 6,
+      radius: 3.5,
       height: 6,
       maxHealth: 500,
       health: 500,
@@ -1641,6 +1642,58 @@ function createInitialDestructibles(): Map<string, Destructible> {
 
   // Merge reindeer defs into main defs list
   for (const r of reindeerDefs) defs.push(r);
+
+  // Scatter penguins across the map - they waddle around and get launched when hit!
+  const PENGUIN_COUNT = 25;
+  const penguinDefs: Destructible[] = [];
+  attempts = 0;
+  while (penguinDefs.length < PENGUIN_COUNT && attempts < MAX_ATTEMPTS) {
+    attempts++;
+    const x = Math.round(randRange(-MAP_EDGE + 8, MAP_EDGE - 8));
+    const y = Math.round(randRange(-MAP_EDGE + 8, MAP_EDGE - 8));
+
+    // avoid center area
+    if (Math.hypot(x, y) < MIN_DIST_FROM_CENTER + 5) continue;
+
+    // avoid static map obstacles
+    let blocked = false;
+    for (const o of STATIC_MAP_OBSTACLES) {
+      if (Math.hypot(x - o.x, y - o.y) < o.radius + 4) {
+        blocked = true;
+        break;
+      }
+    }
+    if (blocked) continue;
+
+    // avoid overlapping other destructibles
+    let tooClose = false;
+    for (const p of existingPositions) {
+      if (Math.hypot(x - p.x, y - p.y) < (p.radius || 1) + MIN_DIST_BETWEEN + 2) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+
+    const id = `penguin-${penguinDefs.length}`;
+    const d: Destructible = {
+      id,
+      type: "penguin",
+      x,
+      y,
+      radius: 1.2,
+      height: 1.4,
+      maxHealth: 9999, // Penguins are indestructible - they just get launched!
+      health: 9999,
+      destroyed: false,
+      debris: [],
+    };
+    penguinDefs.push(d);
+    existingPositions.push({ x: d.x, y: d.y, radius: d.radius });
+  }
+
+  // Merge penguin defs into main defs list
+  for (const p of penguinDefs) defs.push(p);
 
   return new Map(defs.map((d) => [d.id, d]));
 }
@@ -3068,6 +3121,7 @@ function handleDestructibleCollisions(
       else if (destructible.type === "santa") damageMultiplier = 7;
       else if (destructible.type === "snowman") damageMultiplier = 10;
       else if (destructible.type === "candy") damageMultiplier = 12;
+      else if (destructible.type === "penguin") damageMultiplier = 15;
       
       const rawDamage = impactVelocity * damageMultiplier;
       // Per-hit caps vary by type
@@ -3077,6 +3131,7 @@ function handleDestructibleCollisions(
       else if (destructible.type === "santa") PER_HIT_CAP = 25;
       else if (destructible.type === "snowman") PER_HIT_CAP = 20;
       else if (destructible.type === "candy") PER_HIT_CAP = 25;
+      else if (destructible.type === "penguin") PER_HIT_CAP = 25;
       
       let destructibleDamage = Math.min(rawDamage, PER_HIT_CAP);
 
@@ -3098,6 +3153,7 @@ function handleDestructibleCollisions(
       else if (destructible.type === "santa") carDamageMultiplier = 0.6;
       else if (destructible.type === "snowman") carDamageMultiplier = 0.4;
       else if (destructible.type === "candy") carDamageMultiplier = 0.3;
+      else if (destructible.type === "penguin") carDamageMultiplier = 0.2;
       
       const carDamage = impactVelocity * carDamageMultiplier;
       const safeDistance = distance || destructible.radius || 1;
@@ -3119,12 +3175,24 @@ function handleDestructibleCollisions(
       player.lastCollisionSpeed = impactVelocity;
       registerDirectionalImpact(player, normalX, normalY, impactVelocity);
       const destructionBonus = destructible.destroyed ? 50 : 0;
-      const targetLabel =
-        destructible.type === "building" ? "building" : "tree";
+      // Label by type for score description
+      let targetLabel = "tree";
+      if (destructible.type === "building") targetLabel = "building";
+      else if (destructible.type === "penguin") targetLabel = "penguin";
+      else if (destructible.type === "santa") targetLabel = "Santa";
+      else if (destructible.type === "reindeer") targetLabel = "reindeer";
+      else if (destructible.type === "snowman") targetLabel = "snowman";
+      else if (destructible.type === "candy") targetLabel = "candy cane";
+      
+      // Penguins give bonus points for launching them!
+      const penguinLaunchBonus = destructible.type === "penguin" ? 15 : 0;
+      
       const description = destructible.destroyed
         ? `Leveled a ${targetLabel}`
-        : `Slammed a ${targetLabel} (${impactVelocity.toFixed(1)} m/s)`;
-      addScore(player, destructibleDamage + destructionBonus, description);
+        : destructible.type === "penguin"
+          ? `Launched a ${targetLabel}! 🐧`
+          : `Slammed a ${targetLabel} (${impactVelocity.toFixed(1)} m/s)`;
+      addScore(player, destructibleDamage + destructionBonus + penguinLaunchBonus, description);
 
       const penetration = hitRadius - distance + 0.2;
       player.x += normalX * penetration;
@@ -3296,6 +3364,10 @@ function spawnDebris(
         // Red and white candy cane stripes
         const candyColors = ["#dc2626", "#ffffff", "#dc2626", "#ffffff", "#dc2626", "#ffffff"];
         return candyColors[Math.floor(Math.random() * candyColors.length)];
+      case "penguin":
+        // Black body, white belly, orange beak/feet
+        const penguinColors = ["#1a1a2e", "#1a1a2e", "#1a1a2e", "#ffffff", "#ffffff", "#ff8c00"];
+        return penguinColors[Math.floor(Math.random() * penguinColors.length)];
       case "tree":
       default:
         // Green foliage with occasional brown (trunk) or red/gold (ornaments)

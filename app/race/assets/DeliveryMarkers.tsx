@@ -150,14 +150,24 @@ function CarriedDelivery({
           groupRef.current.position.z = interpolatedPos.y;
         } else {
           // remote carriers: use delta-aware exponential smoothing
-          // alpha = 1 - exp(-dt / tau). tau tuned to ~0.12s for a snappy feel.
-          const TAU = 0.12;
+          // alpha = 1 - exp(-dt / tau). tau tuned to ~0.25s for smoother motion
+          // since the interpolatedPos is already smoothed from InterpolatedCar.
+          const TAU = 0.25;
           const alpha = 1 - Math.exp(-Math.max(0, delta) / TAU);
           const g = groupRef.current.position;
           const targetX = interpolatedPos.x;
           const targetZ = interpolatedPos.y;
-          g.x += (targetX - g.x) * alpha;
-          g.z += (targetZ - g.z) * alpha;
+          // For very small differences, snap to avoid micro-jitter
+          const dx = targetX - g.x;
+          const dz = targetZ - g.z;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          if (dist < 0.01) {
+            g.x = targetX;
+            g.z = targetZ;
+          } else {
+            g.x += dx * alpha;
+            g.z += dz * alpha;
+          }
         }
       } catch (e) {
         groupRef.current.position.x = interpolatedPos.x;

@@ -8,6 +8,7 @@ import { Snowman } from "./props/Snowman";
 import { CandyCane } from "./props/CandyCane";
 import { Santa } from "./props/Santa";
 import { Reindeer } from "./props/Reindeer";
+import { Penguin } from "./props/Penguin";
 import { useEffect, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
@@ -269,6 +270,19 @@ export function DestructibleField({
                       health={item.health}
                       maxHealth={item.maxHealth}
                       lastHitAt={item.lastHitAt}
+                    />
+                  );
+                case "penguin":
+                  return (
+                    <Penguin
+                      id={item.id}
+                      position={position}
+                      physics={true}
+                      destroyed={item.destroyed}
+                      health={item.health}
+                      maxHealth={item.maxHealth}
+                      lastHitAt={item.lastHitAt}
+                      wanderRadius={10}
                     />
                   );
                 default:
