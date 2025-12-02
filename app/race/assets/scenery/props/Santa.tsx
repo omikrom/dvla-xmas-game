@@ -38,19 +38,19 @@ export function Santa({
     : 1;
 
   /** Tilt based on health - more dramatic as health drops */
-  const tilt = destroyed 
-    ? -0.7 
+  const tilt = destroyed
+    ? -0.7
     : THREE.MathUtils.degToRad((1 - integrity) * 15);
 
   /** Color changes based on damage */
-  const coatColor = destroyed 
-    ? "#6b7280" 
-    : integrity > 0.6 
-      ? "#b91c1c" 
-      : integrity > 0.3 
-        ? "#991b1b" 
-        : "#7f1d1d";
-        
+  const coatColor = destroyed
+    ? "#6b7280"
+    : integrity > 0.6
+    ? "#b91c1c"
+    : integrity > 0.3
+    ? "#991b1b"
+    : "#7f1d1d";
+
   const skinColor = destroyed ? "#9ca3af" : "#ffb4b4";
   const beardColor = destroyed ? "#d1d5db" : "white";
 
@@ -59,7 +59,7 @@ export function Santa({
     if (!lastHitAt) return;
     const elapsed = Date.now() - lastHitAt;
     if (elapsed > 800) return;
-    
+
     setShakeIntensity(Math.max(0, 1 - elapsed / 800) * 0.4);
     const interval = setInterval(() => {
       const now = Date.now() - lastHitAt;
@@ -70,7 +70,7 @@ export function Santa({
         setShakeIntensity(Math.max(0, 1 - now / 800) * 0.4);
       }
     }, 50);
-    
+
     return () => clearInterval(interval);
   }, [lastHitAt]);
 
@@ -91,7 +91,7 @@ export function Santa({
     // More lively idle animation
     groupRef.current.rotation.x = Math.sin(t * 0.6) * 0.04 + tilt;
     groupRef.current.rotation.z = Math.sin(t * 0.45) * 0.03;
-    
+
     // Breathing effect - belly slightly expands/contracts
     const breathScale = 1 + Math.sin(t * 0.8) * 0.015;
     groupRef.current.scale.set(scale * breathScale, scale, scale * breathScale);
@@ -106,7 +106,8 @@ export function Santa({
     // Shake when hit
     if (shakeIntensity > 0) {
       groupRef.current.rotation.z += (Math.random() - 0.5) * shakeIntensity;
-      groupRef.current.rotation.x += (Math.random() - 0.5) * shakeIntensity * 0.5;
+      groupRef.current.rotation.x +=
+        (Math.random() - 0.5) * shakeIntensity * 0.5;
     }
   });
 
@@ -128,14 +129,44 @@ export function Santa({
     if (!destroyed) return [];
     return [
       // Scattered coat pieces
-      { pos: [-0.3, 0.2, 0.2] as [number, number, number], size: [0.5, 0.3, 0.4] as [number, number, number], color: "#991b1b", rot: 0.3 },
-      { pos: [0.4, 0.15, -0.1] as [number, number, number], size: [0.4, 0.25, 0.35] as [number, number, number], color: "#7f1d1d", rot: -0.5 },
-      { pos: [0.1, 0.1, 0.5] as [number, number, number], size: [0.35, 0.2, 0.3] as [number, number, number], color: "#b91c1c", rot: 0.8 },
+      {
+        pos: [-0.3, 0.2, 0.2] as [number, number, number],
+        size: [0.5, 0.3, 0.4] as [number, number, number],
+        color: "#991b1b",
+        rot: 0.3,
+      },
+      {
+        pos: [0.4, 0.15, -0.1] as [number, number, number],
+        size: [0.4, 0.25, 0.35] as [number, number, number],
+        color: "#7f1d1d",
+        rot: -0.5,
+      },
+      {
+        pos: [0.1, 0.1, 0.5] as [number, number, number],
+        size: [0.35, 0.2, 0.3] as [number, number, number],
+        color: "#b91c1c",
+        rot: 0.8,
+      },
       // Belt buckle
-      { pos: [0, 0.08, 0.3] as [number, number, number], size: [0.2, 0.15, 0.1] as [number, number, number], color: "#fbbf24", rot: 0.1 },
+      {
+        pos: [0, 0.08, 0.3] as [number, number, number],
+        size: [0.2, 0.15, 0.1] as [number, number, number],
+        color: "#fbbf24",
+        rot: 0.1,
+      },
       // Boot
-      { pos: [-0.5, 0.12, 0.4] as [number, number, number], size: [0.4, 0.25, 0.5] as [number, number, number], color: "#111827", rot: 1.2 },
-      { pos: [0.6, 0.1, -0.3] as [number, number, number], size: [0.35, 0.2, 0.45] as [number, number, number], color: "#1f2937", rot: -0.7 },
+      {
+        pos: [-0.5, 0.12, 0.4] as [number, number, number],
+        size: [0.4, 0.25, 0.5] as [number, number, number],
+        color: "#111827",
+        rot: 1.2,
+      },
+      {
+        pos: [0.6, 0.1, -0.3] as [number, number, number],
+        size: [0.35, 0.2, 0.45] as [number, number, number],
+        color: "#1f2937",
+        rot: -0.7,
+      },
     ];
   }, [destroyed]);
 
@@ -339,7 +370,11 @@ export function Santa({
       </group>
 
       {/* Right arm - raised waving */}
-      <group ref={wavingArmRef} position={[0.75, 1.7, 0]} rotation={[-0.3, 0, -1.2]}>
+      <group
+        ref={wavingArmRef}
+        position={[0.75, 1.7, 0]}
+        rotation={[-0.3, 0, -1.2]}
+      >
         {/* Shoulder */}
         <mesh position={[0, 0, 0]}>
           <sphereGeometry args={[0.2, 16, 16]} />
@@ -418,27 +453,23 @@ export function Santa({
           {[0, 1, 2].map((i) => (
             <mesh
               key={`crack-${i}`}
-              position={[
-                (Math.sin(i * 2.5) * 0.5),
-                1.0 + i * 0.4,
-                0.75
-              ]}
+              position={[Math.sin(i * 2.5) * 0.5, 1.0 + i * 0.4, 0.75]}
               rotation={[0, 0, i * 0.4 - 0.6]}
             >
               <planeGeometry args={[0.04, 0.3 + i * 0.1]} />
-              <meshBasicMaterial color="#1f2937" transparent opacity={0.8 * (1 - integrity)} side={THREE.DoubleSide} />
+              <meshBasicMaterial
+                color="#1f2937"
+                transparent
+                opacity={0.8 * (1 - integrity)}
+                side={THREE.DoubleSide}
+              />
             </mesh>
           ))}
         </group>
       )}
 
       {/* Magical Christmas sparkles around Santa */}
-      <Sparks 
-        position={[0, 1.5, 0]} 
-        scale={2.5} 
-        count={25} 
-        color="#ffd700" 
-      />
+      <Sparks position={[0, 1.5, 0]} scale={2.5} count={25} color="#ffd700" />
     </group>
   );
 

@@ -73,7 +73,7 @@ export default function TargetedOrbitControls({
     const cameraTrackFactor = 8; // How fast camera tracks the smoothed position
     const cameraSmoothing = 1 - Math.exp(-cameraTrackFactor * delta);
     ctrl.target.lerp(smoothedTarget.current, cameraSmoothing);
-    
+
     if (ctrl.update) ctrl.update();
   });
 

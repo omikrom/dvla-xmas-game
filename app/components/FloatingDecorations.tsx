@@ -12,7 +12,11 @@ const DECORATIONS = [
   { emoji: "🍬", size: 24 },
 ];
 
-export default function FloatingDecorations({ count = 12 }: { count?: number }) {
+export default function FloatingDecorations({
+  count = 12,
+}: {
+  count?: number;
+}) {
   const items = React.useMemo(() => {
     const out: Array<{
       left: string;
@@ -60,9 +64,10 @@ export default function FloatingDecorations({ count = 12 }: { count?: number }) 
             top: item.top,
             fontSize: item.size + "px",
             opacity: 0.6,
-            animation: item.emoji === "⭐" 
-              ? `float_spin ${item.duration} linear infinite`
-              : `float_bob ${item.duration} ease-in-out infinite`,
+            animation:
+              item.emoji === "⭐"
+                ? `float_spin ${item.duration} linear infinite`
+                : `float_bob ${item.duration} ease-in-out infinite`,
             animationDelay: item.delay,
           }}
         >

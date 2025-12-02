@@ -62,7 +62,7 @@ export function CandyCane({
     if (!lastHitAt) return;
     const elapsed = Date.now() - lastHitAt;
     if (elapsed > 700) return;
-    
+
     setShakeIntensity(Math.max(0, 1 - elapsed / 700) * 0.25);
     const interval = setInterval(() => {
       const now = Date.now() - lastHitAt;
@@ -73,7 +73,7 @@ export function CandyCane({
         setShakeIntensity(Math.max(0, 1 - now / 700) * 0.25);
       }
     }, 50);
-    
+
     return () => clearInterval(interval);
   }, [lastHitAt]);
 
@@ -86,7 +86,8 @@ export function CandyCane({
     // Shake when hit
     if (shakeIntensity > 0) {
       groupRef.current.rotation.z += (Math.random() - 0.5) * shakeIntensity;
-      groupRef.current.rotation.x += (Math.random() - 0.5) * shakeIntensity * 0.5;
+      groupRef.current.rotation.x +=
+        (Math.random() - 0.5) * shakeIntensity * 0.5;
     }
   });
 
@@ -111,10 +112,26 @@ export function CandyCane({
     if (!destroyed) return [];
     return [
       // Candy cane fragments
-      { pos: [-0.2, 0.08, 0.15] as [number, number, number], length: 0.4, rot: 0.8 },
-      { pos: [0.25, 0.06, -0.1] as [number, number, number], length: 0.35, rot: -0.5 },
-      { pos: [0.05, 0.05, 0.3] as [number, number, number], length: 0.25, rot: 1.2 },
-      { pos: [-0.15, 0.07, -0.2] as [number, number, number], length: 0.3, rot: -0.3 },
+      {
+        pos: [-0.2, 0.08, 0.15] as [number, number, number],
+        length: 0.4,
+        rot: 0.8,
+      },
+      {
+        pos: [0.25, 0.06, -0.1] as [number, number, number],
+        length: 0.35,
+        rot: -0.5,
+      },
+      {
+        pos: [0.05, 0.05, 0.3] as [number, number, number],
+        length: 0.25,
+        rot: 1.2,
+      },
+      {
+        pos: [-0.15, 0.07, -0.2] as [number, number, number],
+        length: 0.3,
+        rot: -0.3,
+      },
     ];
   }, [destroyed]);
 
@@ -122,7 +139,9 @@ export function CandyCane({
     <group ref={groupRef}>
       {/* Shaft uses ROTATED texture - taller and thicker */}
       <mesh position={[0, shaftHeight / 2 - 0.5, 0]} castShadow>
-        <cylinderGeometry args={[shaftRadius, shaftRadius * 1.1, shaftHeight, 16]} />
+        <cylinderGeometry
+          args={[shaftRadius, shaftRadius * 1.1, shaftHeight, 16]}
+        />
         <meshStandardMaterial map={shaftTex} roughness={0.3} />
       </mesh>
 
@@ -152,15 +171,16 @@ export function CandyCane({
           {[0, 1].map((i) => (
             <mesh
               key={`crack-${i}`}
-              position={[
-                0.08,
-                0.4 + i * 0.5,
-                0.08
-              ]}
+              position={[0.08, 0.4 + i * 0.5, 0.08]}
               rotation={[0, 0.3, i * 0.4 - 0.2]}
             >
               <planeGeometry args={[0.02, 0.25 + i * 0.1]} />
-              <meshBasicMaterial color="#1f2937" transparent opacity={0.6 * (1 - integrity)} side={THREE.DoubleSide} />
+              <meshBasicMaterial
+                color="#1f2937"
+                transparent
+                opacity={0.6 * (1 - integrity)}
+                side={THREE.DoubleSide}
+              />
             </mesh>
           ))}
         </group>
@@ -222,7 +242,12 @@ export function CandyCane({
         {/* Hit smoke effect */}
         {lastHitAt && Date.now() - lastHitAt < 700 && (
           <group position={[0, shaftHeight - 0.2, 0]}>
-            <Smoke position={[0, 0, 0]} scale={0.5} count={18} color="#fecaca" />
+            <Smoke
+              position={[0, 0, 0]}
+              scale={0.5}
+              count={18}
+              color="#fecaca"
+            />
           </group>
         )}
         {/* Continuous smoke when heavily damaged */}

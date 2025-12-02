@@ -46,7 +46,10 @@ export default function ChristmasLights({
         className="absolute w-full h-6"
         viewBox="0 0 100 10"
         preserveAspectRatio="none"
-        style={{ top: position === "top" ? 0 : "auto", bottom: position === "bottom" ? 0 : "auto" }}
+        style={{
+          top: position === "top" ? 0 : "auto",
+          bottom: position === "bottom" ? 0 : "auto",
+        }}
       >
         <path
           d="M0,2 Q25,8 50,2 T100,2"
@@ -75,7 +78,9 @@ export default function ChristmasLights({
               height: "16px",
               background: light.color,
               borderRadius: "50% 50% 50% 50% / 40% 40% 60% 60%",
-              animation: `xmas_twinkle ${1.5 + Math.random()}s ease-in-out infinite`,
+              animation: `xmas_twinkle ${
+                1.5 + Math.random()
+              }s ease-in-out infinite`,
               animationDelay: light.delay,
               color: light.color,
             }}

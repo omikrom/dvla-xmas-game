@@ -121,23 +121,28 @@ export async function POST(request: NextRequest) {
     try {
       const owner = await getCurrentMatchOwner();
       const currentState = getGameState();
-      
+
       // Check for owner takeover opportunity during racing
       if (currentState === "racing" && body.matchToken) {
         const ownerTtl = await getMatchOwnerTtl();
         // ownerTtl: null = couldn't read, -2 = key missing, -1 = no TTL, >0 = ms remaining
         const ownerExpired = ownerTtl !== null && ownerTtl <= 0;
         const noOwner = !owner;
-        
+
         if (ownerExpired || noOwner) {
           // Try to claim ownership by force-setting the owner key.
           // refreshMatchOwner doesn't use NX, so it will overwrite any stale owner.
           try {
-            const claimed = await refreshMatchOwner(getInstanceId(), MATCH_DURATION_MS);
+            const claimed = await refreshMatchOwner(
+              getInstanceId(),
+              MATCH_DURATION_MS
+            );
             if (claimed) {
               ownerTakenOver = true;
-              console.log(`[api/game] TAKEOVER: claimed ownership after owner expired/missing (instance=${getInstanceId()}, ownerTtl=${ownerTtl})`);
-              
+              console.log(
+                `[api/game] TAKEOVER: claimed ownership after owner expired/missing (instance=${getInstanceId()}, ownerTtl=${ownerTtl})`
+              );
+
               // CRITICAL: Load the latest snapshot so we continue from where the old owner left off
               try {
                 const snap = await getMatchSnapshot();
@@ -148,27 +153,47 @@ export async function POST(request: NextRequest) {
                       snap.destructibles.map((d: any) => [d.id, d])
                     );
                   }
-                  r.deliveries = Array.isArray(snap.deliveries) ? snap.deliveries : [];
-                  r.powerUps = Array.isArray(snap.powerUps) ? snap.powerUps : [];
-                  r.leaderboard = Array.isArray(snap.leaderboard) ? snap.leaderboard : [];
+                  r.deliveries = Array.isArray(snap.deliveries)
+                    ? snap.deliveries
+                    : [];
+                  r.powerUps = Array.isArray(snap.powerUps)
+                    ? snap.powerUps
+                    : [];
+                  r.leaderboard = Array.isArray(snap.leaderboard)
+                    ? snap.leaderboard
+                    : [];
                   r.events = Array.isArray(snap.events) ? snap.events : [];
                   if (Array.isArray(snap.players)) {
-                    r.players = new Map(snap.players.map((p: any) => [p.id, p]));
+                    r.players = new Map(
+                      snap.players.map((p: any) => [p.id, p])
+                    );
                   }
-                  if (typeof snap.raceStartTime === "number") r.raceStartTime = snap.raceStartTime;
-                  if (typeof snap.raceEndTime === "number") r.raceEndTime = snap.raceEndTime;
+                  if (typeof snap.raceStartTime === "number")
+                    r.raceStartTime = snap.raceStartTime;
+                  if (typeof snap.raceEndTime === "number")
+                    r.raceEndTime = snap.raceEndTime;
                   r.lastPhysicsUpdate = Date.now();
-                  console.log(`[api/game] TAKEOVER: loaded snapshot with ${snap.players?.length || 0} players`);
+                  console.log(
+                    `[api/game] TAKEOVER: loaded snapshot with ${
+                      snap.players?.length || 0
+                    } players`
+                  );
                 }
               } catch (snapErr) {
-                console.warn("[api/game] takeover snapshot load failed:", snapErr);
+                console.warn(
+                  "[api/game] takeover snapshot load failed:",
+                  snapErr
+                );
               }
-              
+
               // Start the physics and snapshot loops
               try {
                 await ensureOwnerPeriodicTasks();
               } catch (e) {
-                console.warn("[api/game] ensureOwnerPeriodicTasks failed after takeover:", e);
+                console.warn(
+                  "[api/game] ensureOwnerPeriodicTasks failed after takeover:",
+                  e
+                );
               }
             }
           } catch (e) {
@@ -176,7 +201,7 @@ export async function POST(request: NextRequest) {
           }
         }
       }
-      
+
       // If we're not the owner (and didn't just take over), apply snapshot
       if (owner && owner !== getInstanceId() && !ownerTakenOver) {
         const snap = await getMatchSnapshot();
@@ -237,7 +262,7 @@ export async function POST(request: NextRequest) {
         const owner = await getCurrentMatchOwner();
         isOwner = !owner || owner === getInstanceId();
       }
-      
+
       // For non-owner workers during an active race, prefer returning snapshot
       // players to avoid divergent state from local physics simulation
       if (!isOwner && getGameState() === "racing") {
@@ -254,7 +279,7 @@ export async function POST(request: NextRequest) {
     // Update player input. If client provided an input sequence number (`seq`),
     // forward it so the server can acknowledge the last processed input.
     const clientSeq = typeof body.seq === "number" ? body.seq : null;
-    
+
     // Always update player to keep them active (lastUpdate timestamp), but
     // non-owner workers won't have their physics changes be authoritative
     const createRes = await measure("createOrUpdatePlayer", () =>
@@ -274,7 +299,7 @@ export async function POST(request: NextRequest) {
 
     // Update physics - only owner's physics is authoritative
     const physicsRes = await measure("updatePhysics", () => updatePhysics());
-    
+
     // For non-owner workers, merge the requesting player's local state with
     // snapshot players to reduce position divergence. The owner's snapshot
     // is the source of truth for all other players.
@@ -283,10 +308,10 @@ export async function POST(request: NextRequest) {
       // Use snapshot as base, but update the requesting player's input state
       const snapMap = new Map(snapshotPlayers.map((p: any) => [p.id, p]));
       const localPlayers = physicsRes.result as any[];
-      
+
       // Find the requesting player in local state (has latest input applied)
       const localMe = localPlayers.find((p: any) => p.id === playerId);
-      
+
       // Merge: use snapshot positions for all players, but preserve the
       // requesting player's input (steer/throttle) so prediction works
       players = snapshotPlayers.map((p: any) => {
@@ -302,7 +327,7 @@ export async function POST(request: NextRequest) {
         }
         return p;
       });
-      
+
       // If requesting player isn't in snapshot yet (new joiner), add them
       if (!snapMap.has(playerId) && localMe) {
         players.push(localMe);

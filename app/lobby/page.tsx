@@ -192,16 +192,15 @@ export default function LobbyPage() {
             </h1>
             <span className="text-4xl">🎄</span>
           </div>
-          <p className="text-slate-400 text-sm">
-            Waiting in the workshop...
-          </p>
+          <p className="text-slate-400 text-sm">Waiting in the workshop...</p>
         </div>
 
         {/* Player List Card */}
-        <div 
+        <div
           className="bg-slate-900/60 backdrop-blur-md rounded-2xl p-6 border border-white/10"
           style={{
-            boxShadow: "0 0 40px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)",
+            boxShadow:
+              "0 0 40px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)",
           }}
         >
           <div className="flex items-center justify-between mb-4">
@@ -210,7 +209,8 @@ export default function LobbyPage() {
               Drivers
             </h2>
             <span className="px-3 py-1 bg-white/10 rounded-full text-sm font-medium">
-              {lobbyState.players.length} {lobbyState.players.length === 1 ? "player" : "players"}
+              {lobbyState.players.length}{" "}
+              {lobbyState.players.length === 1 ? "player" : "players"}
             </span>
           </div>
 
@@ -220,9 +220,30 @@ export default function LobbyPage() {
                 <div className="text-4xl mb-3">🦌</div>
                 <p className="text-slate-400">
                   Waiting for drivers
-                  <span style={{ animation: "waiting_dots 1.4s infinite", animationDelay: "0s" }}>.</span>
-                  <span style={{ animation: "waiting_dots 1.4s infinite", animationDelay: "0.2s" }}>.</span>
-                  <span style={{ animation: "waiting_dots 1.4s infinite", animationDelay: "0.4s" }}>.</span>
+                  <span
+                    style={{
+                      animation: "waiting_dots 1.4s infinite",
+                      animationDelay: "0s",
+                    }}
+                  >
+                    .
+                  </span>
+                  <span
+                    style={{
+                      animation: "waiting_dots 1.4s infinite",
+                      animationDelay: "0.2s",
+                    }}
+                  >
+                    .
+                  </span>
+                  <span
+                    style={{
+                      animation: "waiting_dots 1.4s infinite",
+                      animationDelay: "0.4s",
+                    }}
+                  >
+                    .
+                  </span>
                 </p>
               </div>
             ) : (
@@ -234,7 +255,11 @@ export default function LobbyPage() {
                       ? "bg-blue-500/20 border-2 border-blue-500/50"
                       : "bg-white/5 border border-white/5 hover:bg-white/10"
                   }`}
-                  style={player.id === playerId ? { animation: "card_glow 2s ease-in-out infinite" } : {}}
+                  style={
+                    player.id === playerId
+                      ? { animation: "card_glow 2s ease-in-out infinite" }
+                      : {}
+                  }
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-slate-500 text-sm font-mono w-6">
@@ -246,7 +271,7 @@ export default function LobbyPage() {
                           onClick={() => colorInputRef.current?.click()}
                           aria-label="Choose your colour"
                           className="w-10 h-10 rounded-full ring-2 ring-white/30 hover:ring-white/50 focus:outline-none hover:scale-110 transition-all shadow-lg"
-                          style={{ 
+                          style={{
                             backgroundColor: player.color,
                             boxShadow: `0 0 15px ${player.color}50`,
                           }}
@@ -275,7 +300,7 @@ export default function LobbyPage() {
                     ) : (
                       <div
                         className="w-10 h-10 rounded-full shadow-lg"
-                        style={{ 
+                        style={{
                           backgroundColor: player.color,
                           boxShadow: `0 0 10px ${player.color}30`,
                         }}
@@ -294,9 +319,11 @@ export default function LobbyPage() {
                   </div>
                   <div>
                     {player.ready ? (
-                      <span 
+                      <span
                         className="px-4 py-2 bg-green-500/20 border border-green-500/30 rounded-full text-sm font-bold text-green-400 flex items-center gap-2"
-                        style={{ animation: "ready_bounce 1s ease-in-out infinite" }}
+                        style={{
+                          animation: "ready_bounce 1s ease-in-out infinite",
+                        }}
                       >
                         <span>✓</span> Ready!
                       </span>
@@ -323,8 +350,8 @@ export default function LobbyPage() {
                   : "bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
               }`}
               style={{
-                boxShadow: isReady 
-                  ? "0 0 30px rgba(220,38,38,0.4)" 
+                boxShadow: isReady
+                  ? "0 0 30px rgba(220,38,38,0.4)"
                   : "0 0 30px rgba(34,197,94,0.4)",
               }}
             >
@@ -340,7 +367,7 @@ export default function LobbyPage() {
             </button>
 
             {allReady && (
-              <div 
+              <div
                 className="inline-flex items-center gap-3 px-6 py-3 bg-green-500/20 border border-green-500/30 rounded-xl"
                 style={{ animation: "countdown_pulse 1s ease-in-out infinite" }}
               >
@@ -372,8 +399,8 @@ export default function LobbyPage() {
         {/* Decorative bottom */}
         <div className="flex justify-center gap-2 pt-4">
           {["🎁", "⭐", "🔔", "❄️", "🎄"].map((emoji, i) => (
-            <span 
-              key={i} 
+            <span
+              key={i}
               className="text-2xl opacity-50"
               style={{
                 animation: `ready_bounce ${1 + i * 0.1}s ease-in-out infinite`,

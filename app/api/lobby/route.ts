@@ -39,14 +39,14 @@ export async function POST(request: NextRequest) {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const gs = require("@/lib/gameState");
       const currentState = gs.getGameState ? gs.getGameState() : null;
-      
+
       if (currentState === "finished") {
         console.log("[lobby] game state is 'finished', attempting reset...");
         if (gs && typeof gs.resetIfFinishedOlderThan === "function") {
           // Try with 0ms threshold first to reset immediately
           const didReset = gs.resetIfFinishedOlderThan(0);
           console.log("[lobby] resetIfFinishedOlderThan(0) ->", didReset);
-          
+
           // If that didn't work, try force resetting
           if (!didReset && typeof gs.forceResetToLobby === "function") {
             gs.forceResetToLobby();
@@ -86,14 +86,18 @@ export async function POST(request: NextRequest) {
       const allReady = checkAllReady();
       const playersNow = getRoomState();
       const currentGameState = getGameState();
-      
+
       console.log("[lobby] readiness check:", {
         allReady,
         playerCount: playersNow.length,
         gameState: currentGameState,
-        players: playersNow.map(p => ({ id: p.id, name: p.name, ready: p.ready })),
+        players: playersNow.map((p) => ({
+          id: p.id,
+          name: p.name,
+          ready: p.ready,
+        })),
       });
-      
+
       if (allReady && currentGameState === "lobby") {
         if (playersNow.length >= 1) {
           try {

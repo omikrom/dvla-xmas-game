@@ -30,7 +30,9 @@ export function Reindeer({
     ? Math.max(health ?? maxHealth, 0) / maxHealth
     : 1;
 
-  const tilt = destroyed ? -0.7 : THREE.MathUtils.degToRad((1 - integrity) * 10);
+  const tilt = destroyed
+    ? -0.7
+    : THREE.MathUtils.degToRad((1 - integrity) * 10);
   const [shakeIntensity, setShakeIntensity] = useState(0);
 
   const groupRef = useRef<THREE.Group | null>(null);
@@ -46,7 +48,7 @@ export function Reindeer({
     if (integrity > 0.2) return "#5a3a1a";
     return "#4a3018";
   }, [integrity, destroyed]);
-  
+
   const lightFurColor = useMemo(() => {
     if (destroyed) return "#5a4030";
     if (integrity > 0.7) return "#9a6a3a";
@@ -65,7 +67,7 @@ export function Reindeer({
     if (!lastHitAt) return;
     const elapsed = Date.now() - lastHitAt;
     if (elapsed > 700) return;
-    
+
     setShakeIntensity(Math.max(0, 1 - elapsed / 700) * 0.35);
     const interval = setInterval(() => {
       const now = Date.now() - lastHitAt;
@@ -76,7 +78,7 @@ export function Reindeer({
         setShakeIntensity(Math.max(0, 1 - now / 700) * 0.35);
       }
     }, 50);
-    
+
     return () => clearInterval(interval);
   }, [lastHitAt]);
 
@@ -92,7 +94,8 @@ export function Reindeer({
     // wobble on hit with enhanced shake
     if (shakeIntensity > 0) {
       groupRef.current.rotation.z += (Math.random() - 0.5) * shakeIntensity;
-      groupRef.current.rotation.x += (Math.random() - 0.5) * shakeIntensity * 0.5;
+      groupRef.current.rotation.x +=
+        (Math.random() - 0.5) * shakeIntensity * 0.5;
     }
   });
 
@@ -107,7 +110,7 @@ export function Reindeer({
   }
 
   const baseRotationY = idToAngle(id);
-  
+
   // Nose glow intensity based on health
   const noseGlow = useMemo(() => {
     if (destroyed) return 0;
@@ -123,7 +126,7 @@ export function Reindeer({
         <boxGeometry args={[1.6, 0.7, 0.6]} />
         <meshStandardMaterial color={furColor} />
       </mesh>
-      
+
       {/* Harness / Christmas bells */}
       {integrity > 0.4 && (
         <group position={[0, 1.0, 0]}>
@@ -136,7 +139,11 @@ export function Reindeer({
           {[0, 1, 2].map((i) => (
             <mesh key={`bell-${i}`} position={[(i - 1) * 0.25, -0.08, 0.35]}>
               <sphereGeometry args={[0.05, 8, 8]} />
-              <meshStandardMaterial color="#ffd700" metalness={0.8} roughness={0.2} />
+              <meshStandardMaterial
+                color="#ffd700"
+                metalness={0.8}
+                roughness={0.2}
+              />
             </mesh>
           ))}
         </group>
@@ -255,13 +262,18 @@ export function Reindeer({
         <coneGeometry args={[0.18, 0.32, 8]} />
         <meshStandardMaterial color={lightFurColor} />
       </mesh>
-      
+
       {/* Damage cracks when health is low */}
       {integrity < 0.4 && (
         <group>
           <mesh position={[0.2, 1.1, 0.31]}>
             <planeGeometry args={[0.03, 0.4]} />
-            <meshBasicMaterial color="#1a1a1a" transparent opacity={0.5} side={THREE.DoubleSide} />
+            <meshBasicMaterial
+              color="#1a1a1a"
+              transparent
+              opacity={0.5}
+              side={THREE.DoubleSide}
+            />
           </mesh>
         </group>
       )}
@@ -275,13 +287,13 @@ export function Reindeer({
         <boxGeometry args={[1.2, 0.5, 0.5]} />
         <meshStandardMaterial color="#6b4a25" />
       </mesh>
-      
+
       {/* Head separated */}
       <mesh position={[0.9, 0.4, 0.2]} rotation={[0.5, 0.7, 0.3]}>
         <sphereGeometry args={[0.32, 16, 16]} />
         <meshStandardMaterial map={bossFaceTexture} />
       </mesh>
-      
+
       {/* Broken antler pieces */}
       <mesh position={[1.2, 0.1, 0.3]} rotation={[0.2, 0.5, 1.2]}>
         <boxGeometry args={[0.06, 0.35, 0.06]} />
@@ -291,7 +303,7 @@ export function Reindeer({
         <boxGeometry args={[0.06, 0.25, 0.06]} />
         <meshStandardMaterial color="#3a2a15" />
       </mesh>
-      
+
       {/* Broken legs */}
       <mesh position={[-0.4, 0.12, 0.35]} rotation={[Math.PI / 2, 0, 0.6]}>
         <cylinderGeometry args={[0.08, 0.08, 0.5, 8]} />
@@ -301,19 +313,19 @@ export function Reindeer({
         <cylinderGeometry args={[0.08, 0.08, 0.45, 8]} />
         <meshStandardMaterial color="#5a3a20" />
       </mesh>
-      
+
       {/* Scattered hooves */}
       <mesh position={[-0.6, 0.06, 0.5]}>
         <boxGeometry args={[0.15, 0.1, 0.18]} />
         <meshStandardMaterial color="#111827" />
       </mesh>
-      
+
       {/* Fallen harness/bells */}
       <mesh position={[0.2, 0.08, 0.4]}>
         <sphereGeometry args={[0.05, 8, 8]} />
         <meshStandardMaterial color="#ffd700" metalness={0.8} roughness={0.2} />
       </mesh>
-      
+
       {/* Dust cloud */}
       <group position={[0, 0.3, 0]}>
         <Smoke scale={0.6} count={30} color="#b0a090" />

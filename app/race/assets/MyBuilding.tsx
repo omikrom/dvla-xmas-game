@@ -23,11 +23,15 @@ export default function MyBuilding({
 }: MyBuildingProps) {
   const groupRef = useRef<THREE.Group>(null);
   const [shakeIntensity, setShakeIntensity] = useState(0);
-  const [flickeringWindows, setFlickeringWindows] = useState<Set<number>>(new Set());
-  
+  const [flickeringWindows, setFlickeringWindows] = useState<Set<number>>(
+    new Set()
+  );
+
   // Calculate integrity for progressive damage
-  const integrity = maxHealth ? Math.max(health ?? maxHealth, 0) / maxHealth : 1;
-  
+  const integrity = maxHealth
+    ? Math.max(health ?? maxHealth, 0) / maxHealth
+    : 1;
+
   // Progressive damage colors - walls get darker and more damaged-looking
   const wallColor = useMemo(() => {
     if (destroyed) return "#4a3a30";
@@ -36,7 +40,7 @@ export default function MyBuilding({
     if (integrity > 0.2) return "#5c3a2a";
     return "#4a3020";
   }, [integrity, destroyed]);
-  
+
   const roofColor = useMemo(() => {
     if (destroyed) return "#3a3a3a";
     if (integrity > 0.7) return "#ffffff";
@@ -49,9 +53,9 @@ export default function MyBuilding({
     if (!lastHitAt) return;
     const elapsed = Date.now() - lastHitAt;
     if (elapsed > 800) return;
-    
+
     setShakeIntensity(Math.max(0, 1 - elapsed / 800) * 0.08);
-    
+
     // Flicker some random windows when hit
     const windowsToFlicker = new Set<number>();
     const numFlickers = Math.floor(Math.random() * 4) + 2;
@@ -59,7 +63,7 @@ export default function MyBuilding({
       windowsToFlicker.add(Math.floor(Math.random() * 20));
     }
     setFlickeringWindows(windowsToFlicker);
-    
+
     const interval = setInterval(() => {
       const now = Date.now() - lastHitAt;
       if (now > 800) {
@@ -70,10 +74,10 @@ export default function MyBuilding({
         setShakeIntensity(Math.max(0, 1 - now / 800) * 0.08);
       }
     }, 50);
-    
+
     return () => clearInterval(interval);
   }, [lastHitAt]);
-  
+
   // Animate shake
   useFrame(() => {
     if (!groupRef.current) return;
@@ -113,7 +117,7 @@ export default function MyBuilding({
       }
     };
   }, [wedgeGeometry]);
-  
+
   // Helper to determine window emissive based on damage and flickering
   const getWindowEmissive = (baseColor: string, index: number) => {
     if (destroyed) return "#000000";
@@ -122,7 +126,7 @@ export default function MyBuilding({
     if (integrity < 0.5) return Math.random() > 0.85 ? "#0f0f00" : baseColor;
     return baseColor;
   };
-  
+
   const getWindowIntensity = (baseIntensity: number, index: number) => {
     if (destroyed) return 0;
     if (flickeringWindows.has(index)) return baseIntensity * 0.1;
@@ -130,20 +134,54 @@ export default function MyBuilding({
     if (integrity < 0.5) return baseIntensity * 0.7;
     return baseIntensity;
   };
-  
+
   // Debris positions for destroyed state
   const debrisPositions = useMemo(() => {
     if (!destroyed) return [];
     return [
-      { pos: [1.2, 0.3, 0.8] as [number, number, number], size: [1.5, 0.4, 1.2] as [number, number, number], rot: 0.2 },
-      { pos: [-1.0, 0.25, -0.5] as [number, number, number], size: [1.8, 0.35, 1.0] as [number, number, number], rot: -0.3 },
-      { pos: [0.3, 0.4, 1.5] as [number, number, number], size: [1.2, 0.5, 0.8] as [number, number, number], rot: 0.5 },
-      { pos: [-0.8, 0.2, 1.0] as [number, number, number], size: [0.8, 0.3, 1.4] as [number, number, number], rot: -0.1 },
-      { pos: [2.0, 0.35, -1.0] as [number, number, number], size: [1.0, 0.45, 1.1] as [number, number, number], rot: 0.4 },
-      { pos: [0, 0.5, 0] as [number, number, number], size: [2.0, 0.6, 2.0] as [number, number, number], rot: 0 },
+      {
+        pos: [1.2, 0.3, 0.8] as [number, number, number],
+        size: [1.5, 0.4, 1.2] as [number, number, number],
+        rot: 0.2,
+      },
+      {
+        pos: [-1.0, 0.25, -0.5] as [number, number, number],
+        size: [1.8, 0.35, 1.0] as [number, number, number],
+        rot: -0.3,
+      },
+      {
+        pos: [0.3, 0.4, 1.5] as [number, number, number],
+        size: [1.2, 0.5, 0.8] as [number, number, number],
+        rot: 0.5,
+      },
+      {
+        pos: [-0.8, 0.2, 1.0] as [number, number, number],
+        size: [0.8, 0.3, 1.4] as [number, number, number],
+        rot: -0.1,
+      },
+      {
+        pos: [2.0, 0.35, -1.0] as [number, number, number],
+        size: [1.0, 0.45, 1.1] as [number, number, number],
+        rot: 0.4,
+      },
+      {
+        pos: [0, 0.5, 0] as [number, number, number],
+        size: [2.0, 0.6, 2.0] as [number, number, number],
+        rot: 0,
+      },
       // Roof debris
-      { pos: [-0.5, 0.15, -1.2] as [number, number, number], size: [1.5, 0.2, 0.6] as [number, number, number], rot: 0.8, isRoof: true },
-      { pos: [1.0, 0.18, 0.5] as [number, number, number], size: [1.2, 0.15, 0.8] as [number, number, number], rot: -0.6, isRoof: true },
+      {
+        pos: [-0.5, 0.15, -1.2] as [number, number, number],
+        size: [1.5, 0.2, 0.6] as [number, number, number],
+        rot: 0.8,
+        isRoof: true,
+      },
+      {
+        pos: [1.0, 0.18, 0.5] as [number, number, number],
+        size: [1.2, 0.15, 0.8] as [number, number, number],
+        rot: -0.6,
+        isRoof: true,
+      },
     ];
   }, [destroyed]);
 
@@ -161,44 +199,55 @@ export default function MyBuilding({
               castShadow
             >
               <boxGeometry args={d.size} />
-              <meshStandardMaterial 
-                color={(d as any).isRoof ? "#909090" : "#6b5040"} 
-                roughness={0.95} 
+              <meshStandardMaterial
+                color={(d as any).isRoof ? "#909090" : "#6b5040"}
+                roughness={0.95}
               />
             </mesh>
           ))}
-          
+
           {/* Broken window glass scattered */}
           {[0, 1, 2, 3].map((i) => (
             <mesh
               key={`glass-${i}`}
-              position={[
-                (i - 1.5) * 1.2,
-                0.05,
-                (i % 2 === 0 ? 1 : -1) * 1.5
-              ]}
+              position={[(i - 1.5) * 1.2, 0.05, (i % 2 === 0 ? 1 : -1) * 1.5]}
               rotation={[Math.PI / 2, 0, i * 0.3]}
             >
               <planeGeometry args={[0.5 + i * 0.1, 0.4]} />
-              <meshStandardMaterial 
-                color="#ffd700" 
-                transparent 
+              <meshStandardMaterial
+                color="#ffd700"
+                transparent
                 opacity={0.4}
                 emissive="#ffa500"
                 emissiveIntensity={0.3}
               />
             </mesh>
           ))}
-          
+
           {/* Heavy smoke from destruction */}
           <group position={[0, 1.0, 0]}>
-            <Smoke position={[0, 0, 0]} scale={1.2} count={60} color="#8a8a8a" />
+            <Smoke
+              position={[0, 0, 0]}
+              scale={1.2}
+              count={60}
+              color="#8a8a8a"
+            />
           </group>
           <group position={[1.5, 0.5, 0.5]}>
-            <Smoke position={[0, 0, 0]} scale={0.8} count={30} color="#a0a0a0" />
+            <Smoke
+              position={[0, 0, 0]}
+              scale={0.8}
+              count={30}
+              color="#a0a0a0"
+            />
           </group>
           <group position={[-1.0, 0.6, -0.5]}>
-            <Smoke position={[0, 0, 0]} scale={0.7} count={25} color="#909090" />
+            <Smoke
+              position={[0, 0, 0]}
+              scale={0.7}
+              count={25}
+              color="#909090"
+            />
           </group>
         </RigidBody>
       </group>
@@ -213,20 +262,21 @@ export default function MyBuilding({
           {[0, 1, 2].map((i) => (
             <mesh
               key={`crack-${i}`}
-              position={[
-                -0.04 + (i - 1) * 1.5,
-                2.34 + i * 0.5,
-                2.52
-              ]}
+              position={[-0.04 + (i - 1) * 1.5, 2.34 + i * 0.5, 2.52]}
               rotation={[0, 0, i * 0.2 - 0.2]}
             >
               <planeGeometry args={[0.08, 1.5 + i * 0.3]} />
-              <meshBasicMaterial color="#1a1a1a" transparent opacity={0.5 * (1 - integrity)} side={THREE.DoubleSide} />
+              <meshBasicMaterial
+                color="#1a1a1a"
+                transparent
+                opacity={0.5 * (1 - integrity)}
+                side={THREE.DoubleSide}
+              />
             </mesh>
           ))}
         </group>
       )}
-      
+
       {/* main group */}
       <RigidBody type="fixed" colliders="cuboid">
         <mesh
@@ -600,11 +650,16 @@ export default function MyBuilding({
             />
           </group>
         )}
-        
+
         {/* Continuous smoke when heavily damaged */}
         {integrity < 0.35 && (
           <group position={[0, 4.0, 0]}>
-            <Smoke position={[0, 0, 0]} scale={0.6} count={20} color="#909090" />
+            <Smoke
+              position={[0, 0, 0]}
+              scale={0.6}
+              count={20}
+              color="#909090"
+            />
           </group>
         )}
       </RigidBody>

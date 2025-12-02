@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import SnowOverlay from "./components/SnowOverlay";
 import ChristmasLights from "./components/ChristmasLights";
-import FloatingDecorations from "./components/FloatingDecorations";
 import StarryBackground from "./components/StarryBackground";
 import HeroCharacter from "./components/HeroCharacter";
 
@@ -34,7 +33,6 @@ export default function Home() {
       {/* Background layers */}
       <StarryBackground count={60} />
       <ChristmasLights count={25} position="top" />
-      <FloatingDecorations count={15} />
       <SnowOverlay count={60} />
 
       {/* 3D Reindeer Hero - Large background element */}
@@ -229,6 +227,15 @@ export default function Home() {
         <p className="text-slate-500 text-sm text-center">
           Race against friends • Deliver presents • Cause festive mayhem
         </p>
+
+        {/* Leaderboard link */}
+        <button
+          onClick={() => router.push("/leaderboard")}
+          className="mt-2 px-4 py-2 text-yellow-400 hover:text-yellow-300 text-sm font-medium transition-colors flex items-center gap-2 hover:underline"
+        >
+          <span>🏆</span>
+          <span>View Leaderboard</span>
+        </button>
       </main>
     </div>
   );

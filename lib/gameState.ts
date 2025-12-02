@@ -249,7 +249,8 @@ export function setMapSeed(seed?: number | string | null) {
     _mapRng = null;
     return;
   }
-  const s = typeof seed === "number" ? seed >>> 0 : hashStringToInt(String(seed));
+  const s =
+    typeof seed === "number" ? seed >>> 0 : hashStringToInt(String(seed));
   _mapSeed = s;
   _mapRng = mulberry32(s);
 }
@@ -520,43 +521,50 @@ export async function adoptMatchFromToken(token?: string | null) {
             } catch (e) {
               console.warn("Failed to apply match snapshot:", e);
             }
-            }
+          }
 
-            // If we failed to find a snapshot after polling, check the owner's
-            // TTL. If the owner key is missing/expired we can try to claim the
-            // canonical token and become owner to avoid the match stalling.
-            try {
-              const redisConfigured = !!(
-                process.env.REDIS_URL || process.env.REDIS_URI
-              );
-              if (redisConfigured) {
-                try {
-                  const ownerTtl = await Promise.resolve(getMatchOwnerTtl());
-                  // If ownerTtl is null we couldn't read TTL; otherwise
-                  // PTTL returns -2 for no key, -1 for key without TTL.
-                  if (ownerTtl !== null && ownerTtl <= 0) {
-                    // Attempt to claim the token aggressively — claimMatchToken
-                    // will succeed only if owner key is not present (SET NX).
-                    try {
-                      const claimed = await Promise.resolve(
-                        claimMatchToken(token as string, payload.durationMs, INSTANCE_ID)
+          // If we failed to find a snapshot after polling, check the owner's
+          // TTL. If the owner key is missing/expired we can try to claim the
+          // canonical token and become owner to avoid the match stalling.
+          try {
+            const redisConfigured = !!(
+              process.env.REDIS_URL || process.env.REDIS_URI
+            );
+            if (redisConfigured) {
+              try {
+                const ownerTtl = await Promise.resolve(getMatchOwnerTtl());
+                // If ownerTtl is null we couldn't read TTL; otherwise
+                // PTTL returns -2 for no key, -1 for key without TTL.
+                if (ownerTtl !== null && ownerTtl <= 0) {
+                  // Attempt to claim the token aggressively — claimMatchToken
+                  // will succeed only if owner key is not present (SET NX).
+                  try {
+                    const claimed = await Promise.resolve(
+                      claimMatchToken(
+                        token as string,
+                        payload.durationMs,
+                        INSTANCE_ID
+                      )
+                    );
+                    if (claimed) {
+                      amOwner = true;
+                      logInfo(
+                        `[GameState] adoptMatchFromToken: claimed canonical token due to expired owner (instance=${INSTANCE_ID})`
                       );
-                      if (claimed) {
-                        amOwner = true;
-                        logInfo(
-                          `[GameState] adoptMatchFromToken: claimed canonical token due to expired owner (instance=${INSTANCE_ID})`
-                        );
-                      }
-                    } catch (e) {
-                      // ignore claim errors and continue to wait/fallback
-                      console.warn("claimMatchToken during adopt takeover failed:", e);
                     }
+                  } catch (e) {
+                    // ignore claim errors and continue to wait/fallback
+                    console.warn(
+                      "claimMatchToken during adopt takeover failed:",
+                      e
+                    );
                   }
-                } catch (e) {
-                  // ignore TTL check errors
                 }
+              } catch (e) {
+                // ignore TTL check errors
               }
-            } catch (e) {}
+            }
+          } catch (e) {}
         }
       } catch (e) {
         // ignore snapshot loading errors and fall back to local init
@@ -1668,7 +1676,10 @@ function createInitialDestructibles(): Map<string, Destructible> {
     // avoid overlapping other destructibles
     let tooClose = false;
     for (const p of existingPositions) {
-      if (Math.hypot(x - p.x, y - p.y) < (p.radius || 1) + MIN_DIST_BETWEEN + 2) {
+      if (
+        Math.hypot(x - p.x, y - p.y) <
+        (p.radius || 1) + MIN_DIST_BETWEEN + 2
+      ) {
         tooClose = true;
         break;
       }
@@ -1745,15 +1756,19 @@ export async function startRace() {
 
   // If game just finished, ensure we reset first
   if (room.gameState === "finished") {
-    console.log("[GameState] startRace: game is finished, forcing reset to lobby first");
+    console.log(
+      "[GameState] startRace: game is finished, forcing reset to lobby first"
+    );
     forceResetToLobby();
     // Give a moment for the reset to complete
-    await new Promise(res => setTimeout(res, 100));
+    await new Promise((res) => setTimeout(res, 100));
   }
 
   // Clear any stale race timing from previous match
   if (room.raceStartTime || room.raceEndTime) {
-    console.log("[GameState] startRace: clearing stale race timing from previous match");
+    console.log(
+      "[GameState] startRace: clearing stale race timing from previous match"
+    );
     room.raceStartTime = undefined;
     room.raceEndTime = undefined;
     (room as any).currentMatchToken = null;
@@ -1863,7 +1878,9 @@ export async function startRace() {
     // Set deterministic map seed for this match so other workers can
     // reproduce the same map when they adopt the snapshot.
     try {
-      const seed = ((room.raceStartTime || Date.now()) >>> 0) ^ hashStringToInt(INSTANCE_ID);
+      const seed =
+        ((room.raceStartTime || Date.now()) >>> 0) ^
+        hashStringToInt(INSTANCE_ID);
       setMapSeed(seed);
     } catch (e) {}
   }
@@ -2087,18 +2104,24 @@ export function resetIfFinishedOlderThan(thresholdMs: number): boolean {
         room.deliveries = createInitialDeliveries();
         room.powerUps = [];
         room.events = [];
-        
+
         // Clear the match token so a new match can start
         try {
           (room as any).currentMatchToken = null;
           // Also release the token from Redis/KV store
           releaseMatchToken().catch((e: any) => {
-            console.warn("[GameState] releaseMatchToken failed during reset:", e);
+            console.warn(
+              "[GameState] releaseMatchToken failed during reset:",
+              e
+            );
           });
         } catch (e) {
-          console.warn("[GameState] failed to clear match token during reset:", e);
+          console.warn(
+            "[GameState] failed to clear match token during reset:",
+            e
+          );
         }
-        
+
         // Ensure periodic physics is stopped when returning to lobby
         try {
           if (room.periodicPhysicsHandle) {
@@ -2129,7 +2152,7 @@ export function resetIfFinishedOlderThan(thresholdMs: number): boolean {
 // Use this when a game is stuck in "finished" state.
 export function forceResetToLobby(): void {
   console.log("[GameState] forceResetToLobby: forcing room to lobby state");
-  
+
   // Reset world objects so next round starts clean
   room.gameState = "lobby";
   room.resetScheduledAt = undefined;
@@ -2139,17 +2162,23 @@ export function forceResetToLobby(): void {
   room.deliveries = createInitialDeliveries();
   room.powerUps = [];
   room.events = [];
-  
+
   // Clear the match token so a new match can start
   try {
     (room as any).currentMatchToken = null;
     releaseMatchToken().catch((e: any) => {
-      console.warn("[GameState] releaseMatchToken failed during force reset:", e);
+      console.warn(
+        "[GameState] releaseMatchToken failed during force reset:",
+        e
+      );
     });
   } catch (e) {
-    console.warn("[GameState] failed to clear match token during force reset:", e);
+    console.warn(
+      "[GameState] failed to clear match token during force reset:",
+      e
+    );
   }
-  
+
   // Ensure periodic physics is stopped when returning to lobby
   try {
     if (room.periodicPhysicsHandle) {
@@ -2158,7 +2187,7 @@ export function forceResetToLobby(): void {
       logInfo("[GameState] periodic physics tick stopped (force reset)");
     }
   } catch (e) {}
-  
+
   // Clear player ready flags so lobby can manage next-start explicitly
   for (const p of room.players.values()) {
     p.ready = false;
@@ -2167,7 +2196,7 @@ export function forceResetToLobby(): void {
     p.carryingDeliveryId = undefined;
     p.activePowerUps = [];
   }
-  
+
   recordSystemEvent("Server force reset to lobby");
 }
 
@@ -3122,7 +3151,7 @@ function handleDestructibleCollisions(
       else if (destructible.type === "snowman") damageMultiplier = 10;
       else if (destructible.type === "candy") damageMultiplier = 12;
       else if (destructible.type === "penguin") damageMultiplier = 15;
-      
+
       const rawDamage = impactVelocity * damageMultiplier;
       // Per-hit caps vary by type
       let PER_HIT_CAP = 18; // default for trees
@@ -3132,7 +3161,7 @@ function handleDestructibleCollisions(
       else if (destructible.type === "snowman") PER_HIT_CAP = 20;
       else if (destructible.type === "candy") PER_HIT_CAP = 25;
       else if (destructible.type === "penguin") PER_HIT_CAP = 25;
-      
+
       let destructibleDamage = Math.min(rawDamage, PER_HIT_CAP);
 
       // Debounce repeated hits when a car remains contacting the object.
@@ -3154,7 +3183,7 @@ function handleDestructibleCollisions(
       else if (destructible.type === "snowman") carDamageMultiplier = 0.4;
       else if (destructible.type === "candy") carDamageMultiplier = 0.3;
       else if (destructible.type === "penguin") carDamageMultiplier = 0.2;
-      
+
       const carDamage = impactVelocity * carDamageMultiplier;
       const safeDistance = distance || destructible.radius || 1;
       const contactDistance = Math.min(safeDistance, destructible.radius);
@@ -3183,16 +3212,20 @@ function handleDestructibleCollisions(
       else if (destructible.type === "reindeer") targetLabel = "reindeer";
       else if (destructible.type === "snowman") targetLabel = "snowman";
       else if (destructible.type === "candy") targetLabel = "candy cane";
-      
+
       // Penguins give bonus points for launching them!
       const penguinLaunchBonus = destructible.type === "penguin" ? 15 : 0;
-      
+
       const description = destructible.destroyed
         ? `Leveled a ${targetLabel}`
         : destructible.type === "penguin"
-          ? `Launched a ${targetLabel}! 🐧`
-          : `Slammed a ${targetLabel} (${impactVelocity.toFixed(1)} m/s)`;
-      addScore(player, destructibleDamage + destructionBonus + penguinLaunchBonus, description);
+        ? `Launched a ${targetLabel}! 🐧`
+        : `Slammed a ${targetLabel} (${impactVelocity.toFixed(1)} m/s)`;
+      addScore(
+        player,
+        destructibleDamage + destructionBonus + penguinLaunchBonus,
+        description
+      );
 
       const penetration = hitRadius - distance + 0.2;
       player.x += normalX * penetration;
@@ -3321,76 +3354,136 @@ function spawnDebris(
     destructible.lastDebrisAt = now;
   }
   const { normalX, normalY, contactX, contactY, contactZ } = impact;
-  
+
   // Determine scale factor based on building size (DVLA building is larger)
-  const isLargeBuilding = destructible.id === "dvlab-main" || 
-    ((destructible.width ?? 6) > 15 || (destructible.depth ?? 6) > 15);
+  const isLargeBuilding =
+    destructible.id === "dvlab-main" ||
+    (destructible.width ?? 6) > 15 ||
+    (destructible.depth ?? 6) > 15;
   const scaleFactor = isLargeBuilding ? 2.5 : 1;
-  
+
   // More chunks for larger buildings
   const chunkCount = shatter
     ? destructible.type === "building"
-      ? isLargeBuilding ? 20 : 10
+      ? isLargeBuilding
+        ? 20
+        : 10
       : 6
     : destructible.type === "building"
-    ? isLargeBuilding ? 10 : 6
+    ? isLargeBuilding
+      ? 10
+      : 6
     : 3;
 
   // Determine color based on destructible type and custom color if available
   // DVLA building has grey/white concrete colors
   const isWhiteBuilding = destructible.id === "dvlab-main";
-  
+
   // Type-specific debris colors
   const getDebrisColor = (): string => {
     switch (destructible.type) {
       case "building":
         if (isWhiteBuilding) {
-          return ["#e6e6e6", "#d4d4d4", "#9ca3af"][Math.floor(Math.random() * 3)];
+          return ["#e6e6e6", "#d4d4d4", "#9ca3af"][
+            Math.floor(Math.random() * 3)
+          ];
         }
         return destructible.color || "#9ca3af";
       case "snowman":
         // White snow chunks with occasional orange (carrot nose) or black (coal)
-        const snowmanColors = ["#ffffff", "#ffffff", "#ffffff", "#ffffff", "#f97316", "#1f2937"];
+        const snowmanColors = [
+          "#ffffff",
+          "#ffffff",
+          "#ffffff",
+          "#ffffff",
+          "#f97316",
+          "#1f2937",
+        ];
         return snowmanColors[Math.floor(Math.random() * snowmanColors.length)];
       case "santa":
         // Red suit, white trim, skin tone
-        const santaColors = ["#dc2626", "#dc2626", "#dc2626", "#ffffff", "#ffffff", "#fcd5b8"];
+        const santaColors = [
+          "#dc2626",
+          "#dc2626",
+          "#dc2626",
+          "#ffffff",
+          "#ffffff",
+          "#fcd5b8",
+        ];
         return santaColors[Math.floor(Math.random() * santaColors.length)];
       case "reindeer":
         // Brown fur, tan antlers, red nose (Rudolph!)
-        const reindeerColors = ["#8b5a2b", "#8b5a2b", "#8b5a2b", "#d4a574", "#d4a574", "#ef4444"];
-        return reindeerColors[Math.floor(Math.random() * reindeerColors.length)];
+        const reindeerColors = [
+          "#8b5a2b",
+          "#8b5a2b",
+          "#8b5a2b",
+          "#d4a574",
+          "#d4a574",
+          "#ef4444",
+        ];
+        return reindeerColors[
+          Math.floor(Math.random() * reindeerColors.length)
+        ];
       case "candy":
         // Red and white candy cane stripes
-        const candyColors = ["#dc2626", "#ffffff", "#dc2626", "#ffffff", "#dc2626", "#ffffff"];
+        const candyColors = [
+          "#dc2626",
+          "#ffffff",
+          "#dc2626",
+          "#ffffff",
+          "#dc2626",
+          "#ffffff",
+        ];
         return candyColors[Math.floor(Math.random() * candyColors.length)];
       case "penguin":
         // Black body, white belly, orange beak/feet
-        const penguinColors = ["#1a1a2e", "#1a1a2e", "#1a1a2e", "#ffffff", "#ffffff", "#ff8c00"];
+        const penguinColors = [
+          "#1a1a2e",
+          "#1a1a2e",
+          "#1a1a2e",
+          "#ffffff",
+          "#ffffff",
+          "#ff8c00",
+        ];
         return penguinColors[Math.floor(Math.random() * penguinColors.length)];
       case "tree":
       default:
         // Green foliage with occasional brown (trunk) or red/gold (ornaments)
-        const treeColors = ["#14532d", "#14532d", "#14532d", "#166534", "#5c4033", "#dc2626", "#fbbf24"];
+        const treeColors = [
+          "#14532d",
+          "#14532d",
+          "#14532d",
+          "#166534",
+          "#5c4033",
+          "#dc2626",
+          "#fbbf24",
+        ];
         return treeColors[Math.floor(Math.random() * treeColors.length)];
     }
   };
-  
+
   const baseColor = getDebrisColor();
 
   for (let i = 0; i < chunkCount; i++) {
     const size =
       destructible.type === "building"
-        ? isLargeBuilding 
-          ? 1.0 + Math.random() * 2.5  // Larger debris for DVLA
+        ? isLargeBuilding
+          ? 1.0 + Math.random() * 2.5 // Larger debris for DVLA
           : 0.6 + Math.random() * 1.2
         : 0.3 + Math.random() * 0.4;
-    const spread = shatter 
-      ? isLargeBuilding ? 5 + Math.random() * 4 : 3 + Math.random() * 2 
-      : isLargeBuilding ? 2 + Math.random() * 2 : 1 + Math.random();
-    const vx = normalX * spread + (Math.random() - 0.5) * (isLargeBuilding ? 3 : 1.5);
-    const vy = normalY * spread + (Math.random() - 0.5) * (isLargeBuilding ? 3 : 1.5);
-    const vz = (isLargeBuilding ? 6 : 4) + Math.random() * (isLargeBuilding ? 8 : 4);
+    const spread = shatter
+      ? isLargeBuilding
+        ? 5 + Math.random() * 4
+        : 3 + Math.random() * 2
+      : isLargeBuilding
+      ? 2 + Math.random() * 2
+      : 1 + Math.random();
+    const vx =
+      normalX * spread + (Math.random() - 0.5) * (isLargeBuilding ? 3 : 1.5);
+    const vy =
+      normalY * spread + (Math.random() - 0.5) * (isLargeBuilding ? 3 : 1.5);
+    const vz =
+      (isLargeBuilding ? 6 : 4) + Math.random() * (isLargeBuilding ? 8 : 4);
 
     destructible.debris.push({
       id: `${destructible.id}-debris-${Date.now()}-${i}-${Math.random()

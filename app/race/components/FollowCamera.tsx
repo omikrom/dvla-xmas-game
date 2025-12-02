@@ -19,7 +19,7 @@ export default function FollowCamera({
   const { camera } = useThree();
   const targetPositionRef = useRef(new THREE.Vector3());
   const targetLookAtRef = useRef(new THREE.Vector3());
-  
+
   // Pre-smoothed player position to handle server jumps
   const smoothedPlayerPos = useRef(new THREE.Vector3());
   const smoothedPlayerAngle = useRef(0);
@@ -50,11 +50,14 @@ export default function FollowCamera({
     // This creates a buffer between raw server data and camera tracking
     const preSmoothSpeed = isMobile ? 5 : 6;
     const preSmoothing = 1 - Math.exp(-preSmoothSpeed * Math.max(0, delta));
-    
-    smoothedPlayerPos.current.x += (rawX - smoothedPlayerPos.current.x) * preSmoothing;
-    smoothedPlayerPos.current.y += (rawZ - smoothedPlayerPos.current.y) * preSmoothing;
-    smoothedPlayerPos.current.z += (rawY - smoothedPlayerPos.current.z) * preSmoothing;
-    
+
+    smoothedPlayerPos.current.x +=
+      (rawX - smoothedPlayerPos.current.x) * preSmoothing;
+    smoothedPlayerPos.current.y +=
+      (rawZ - smoothedPlayerPos.current.y) * preSmoothing;
+    smoothedPlayerPos.current.z +=
+      (rawY - smoothedPlayerPos.current.z) * preSmoothing;
+
     // Smooth angle with shortest-path interpolation
     let angleDiff = rawAngle - smoothedPlayerAngle.current;
     if (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
@@ -94,11 +97,7 @@ export default function FollowCamera({
     const lookAtForward = 0.8;
     const lookAtX = playerX + Math.sin(playerAngle) * lookAtForward;
     const lookAtZ = playerY + Math.cos(playerAngle) * lookAtForward;
-    targetLookAtRef.current.set(
-      lookAtX,
-      playerZ + lookAtYOffset,
-      lookAtZ
-    );
+    targetLookAtRef.current.set(lookAtX, playerZ + lookAtYOffset, lookAtZ);
 
     // Build desired quaternion for camera to look at the target point
     const camPos = camera.position;

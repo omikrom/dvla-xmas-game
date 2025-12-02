@@ -28,26 +28,28 @@ export function Snowman({
   const integrity = maxHealth
     ? Math.max(health ?? maxHealth, 0) / maxHealth
     : 1;
-  const tilt = destroyed ? -0.6 : THREE.MathUtils.degToRad((1 - integrity) * 12);
+  const tilt = destroyed
+    ? -0.6
+    : THREE.MathUtils.degToRad((1 - integrity) * 12);
   const [shakeIntensity, setShakeIntensity] = useState(0);
 
   const groupRef = useRef<THREE.Group | null>(null);
 
   // Color changes based on damage
-  const snowColor = destroyed 
-    ? "#d1d5db" 
-    : integrity > 0.6 
-      ? "#ffffff" 
-      : integrity > 0.3 
-        ? "#f3f4f6" 
-        : "#e5e7eb";
+  const snowColor = destroyed
+    ? "#d1d5db"
+    : integrity > 0.6
+    ? "#ffffff"
+    : integrity > 0.3
+    ? "#f3f4f6"
+    : "#e5e7eb";
 
   // Shake effect when hit
   useEffect(() => {
     if (!lastHitAt) return;
     const elapsed = Date.now() - lastHitAt;
     if (elapsed > 700) return;
-    
+
     setShakeIntensity(Math.max(0, 1 - elapsed / 700) * 0.35);
     const interval = setInterval(() => {
       const now = Date.now() - lastHitAt;
@@ -58,7 +60,7 @@ export function Snowman({
         setShakeIntensity(Math.max(0, 1 - now / 700) * 0.35);
       }
     }, 50);
-    
+
     return () => clearInterval(interval);
   }, [lastHitAt]);
 
@@ -68,11 +70,12 @@ export function Snowman({
     const t = Date.now() / 1000;
     groupRef.current.rotation.x = Math.sin(t * 0.4) * 0.03 + tilt;
     groupRef.current.rotation.z = Math.sin(t * 0.6) * 0.02;
-    
+
     // Shake when hit
     if (shakeIntensity > 0) {
       groupRef.current.rotation.z += (Math.random() - 0.5) * shakeIntensity;
-      groupRef.current.rotation.x += (Math.random() - 0.5) * shakeIntensity * 0.5;
+      groupRef.current.rotation.x +=
+        (Math.random() - 0.5) * shakeIntensity * 0.5;
     }
   });
 
@@ -93,15 +96,44 @@ export function Snowman({
     if (!destroyed) return [];
     return [
       // Snow chunks
-      { pos: [-0.4, 0.2, 0.3] as [number, number, number], size: 0.35, color: "#e5e7eb" },
-      { pos: [0.5, 0.15, -0.2] as [number, number, number], size: 0.4, color: "#f3f4f6" },
-      { pos: [0.1, 0.1, 0.5] as [number, number, number], size: 0.25, color: "#ffffff" },
-      { pos: [-0.3, 0.12, -0.4] as [number, number, number], size: 0.3, color: "#e5e7eb" },
+      {
+        pos: [-0.4, 0.2, 0.3] as [number, number, number],
+        size: 0.35,
+        color: "#e5e7eb",
+      },
+      {
+        pos: [0.5, 0.15, -0.2] as [number, number, number],
+        size: 0.4,
+        color: "#f3f4f6",
+      },
+      {
+        pos: [0.1, 0.1, 0.5] as [number, number, number],
+        size: 0.25,
+        color: "#ffffff",
+      },
+      {
+        pos: [-0.3, 0.12, -0.4] as [number, number, number],
+        size: 0.3,
+        color: "#e5e7eb",
+      },
       // Carrot nose
-      { pos: [0.6, 0.08, 0.2] as [number, number, number], size: 0.12, color: "#ff8c42", isCarrot: true },
+      {
+        pos: [0.6, 0.08, 0.2] as [number, number, number],
+        size: 0.12,
+        color: "#ff8c42",
+        isCarrot: true,
+      },
       // Coal buttons
-      { pos: [-0.2, 0.05, 0.1] as [number, number, number], size: 0.08, color: "#222" },
-      { pos: [0.3, 0.06, -0.15] as [number, number, number], size: 0.07, color: "#111" },
+      {
+        pos: [-0.2, 0.05, 0.1] as [number, number, number],
+        size: 0.08,
+        color: "#222",
+      },
+      {
+        pos: [0.3, 0.06, -0.15] as [number, number, number],
+        size: 0.07,
+        color: "#111",
+      },
     ];
   }, [destroyed]);
 
@@ -112,13 +144,13 @@ export function Snowman({
         <sphereGeometry args={[0.95, 24, 18]} />
         <meshStandardMaterial color={snowColor} roughness={0.9} />
       </mesh>
-      
+
       {/* Middle snowball */}
       <mesh position={[0, 1.65, 0]} castShadow>
         <sphereGeometry args={[0.65, 20, 16]} />
         <meshStandardMaterial color={snowColor} roughness={0.9} />
       </mesh>
-      
+
       {/* Head */}
       <mesh position={[0, 2.35, 0]} castShadow>
         <sphereGeometry args={[0.42, 18, 14]} />
@@ -134,7 +166,7 @@ export function Snowman({
         <sphereGeometry args={[0.06, 8, 8]} />
         <meshStandardMaterial color="#111" />
       </mesh>
-      
+
       {/* Eyebrows (small snow ridges) */}
       <mesh position={[0.14, 2.52, 0.34]} rotation={[0.3, 0, 0.15]}>
         <boxGeometry args={[0.1, 0.03, 0.04]} />
@@ -153,7 +185,10 @@ export function Snowman({
 
       {/* Smile (coal pieces) */}
       {[-0.12, -0.06, 0, 0.06, 0.12].map((x, i) => (
-        <mesh key={`smile-${i}`} position={[x, 2.22 - Math.abs(x) * 0.8, 0.38 + Math.abs(x) * 0.1]}>
+        <mesh
+          key={`smile-${i}`}
+          position={[x, 2.22 - Math.abs(x) * 0.8, 0.38 + Math.abs(x) * 0.1]}
+        >
           <sphereGeometry args={[0.025, 6, 6]} />
           <meshStandardMaterial color="#222" />
         </mesh>
@@ -237,15 +272,16 @@ export function Snowman({
           {[0, 1].map((i) => (
             <mesh
               key={`crack-${i}`}
-              position={[
-                (i === 0 ? 0.3 : -0.25),
-                1.0 + i * 0.5,
-                0.7
-              ]}
+              position={[i === 0 ? 0.3 : -0.25, 1.0 + i * 0.5, 0.7]}
               rotation={[0, 0, i * 0.5 - 0.25]}
             >
               <planeGeometry args={[0.03, 0.3 + i * 0.1]} />
-              <meshBasicMaterial color="#9ca3af" transparent opacity={0.7 * (1 - integrity)} side={THREE.DoubleSide} />
+              <meshBasicMaterial
+                color="#9ca3af"
+                transparent
+                opacity={0.7 * (1 - integrity)}
+                side={THREE.DoubleSide}
+              />
             </mesh>
           ))}
         </group>
@@ -264,7 +300,11 @@ export function Snowman({
         <sphereGeometry args={[0.35, 10, 8]} />
         <meshStandardMaterial color="#e5e7eb" roughness={0.95} />
       </mesh>
-      <mesh position={[-0.3, 0.18, -0.1]} rotation={[0.2, -0.3, 0.1]} castShadow>
+      <mesh
+        position={[-0.3, 0.18, -0.1]}
+        rotation={[0.2, -0.3, 0.1]}
+        castShadow
+      >
         <sphereGeometry args={[0.3, 10, 8]} />
         <meshStandardMaterial color="#f3f4f6" roughness={0.95} />
       </mesh>
@@ -277,11 +317,7 @@ export function Snowman({
 
       {/* Scattered debris */}
       {debrisPositions.map((d, i) => (
-        <mesh
-          key={`debris-${i}`}
-          position={d.pos}
-          castShadow
-        >
+        <mesh key={`debris-${i}`} position={d.pos} castShadow>
           {(d as any).isCarrot ? (
             <coneGeometry args={[0.05, 0.3, 8]} />
           ) : (
@@ -319,7 +355,12 @@ export function Snowman({
         {/* Hit smoke effect */}
         {lastHitAt && Date.now() - lastHitAt < 700 && (
           <group position={[0, 1.6, 0]}>
-            <Smoke position={[0, 0, 0]} scale={0.5} count={20} color="#e5e7eb" />
+            <Smoke
+              position={[0, 0, 0]}
+              scale={0.5}
+              count={20}
+              color="#e5e7eb"
+            />
           </group>
         )}
         {/* Continuous smoke when heavily damaged */}
