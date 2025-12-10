@@ -179,7 +179,7 @@ export default function InterpolatedCar({
         // Apply forward-prediction based on current speed AND input
         // to make controls feel snappy without changing authoritative state.
         const rawExtra = typeof tuner.extraPredict === "number" ? tuner.extraPredict : null;
-        const extraSec = rawExtra != null ? (rawExtra > 2 ? rawExtra / 1000 : rawExtra) : Math.min(0.18, approxOneWay / 1000);
+        const extraSec = rawExtra != null ? (rawExtra > 2 ? rawExtra / 1000 : rawExtra) : Math.min(0.1, approxOneWay / 1000);
         const serverSpeed = typeof (car as any).speed === "number" ? (car as any).speed : 0;
         
         // Also apply input-based prediction for more responsive feel
@@ -196,8 +196,8 @@ export default function InterpolatedCar({
           
           // Additional input-driven prediction to reduce perceived lag
           // This adds a small offset in the direction the player is trying to go
-          const inputPredSec = extraSec * 0.5; // lighter weight for input prediction
-          const maxInputSpeed = typeof tuner.predSpeed === "number" ? tuner.predSpeed : 8;
+          const inputPredSec = extraSec * 0.35; // lighter weight for input prediction
+          const maxInputSpeed = typeof tuner.predSpeed === "number" ? tuner.predSpeed : 6;
           const inputSpeed = inputThrottle * maxInputSpeed;
           const inputPredDx = -Math.sin(sampledAngle) * inputSpeed * inputPredSec;
           const inputPredDy = -Math.cos(sampledAngle) * inputSpeed * inputPredSec;
@@ -205,7 +205,7 @@ export default function InterpolatedCar({
           sampledY += inputPredDy;
           
           // Small steering prediction
-          sampledAngle += inputSteer * 0.15 * inputPredSec;
+          sampledAngle += inputSteer * 0.1 * inputPredSec;
         } else {
           // Fallback: just use server speed
           const predDx = -Math.sin(car.angle || 0) * serverSpeed * extraSec;
@@ -298,7 +298,7 @@ export default function InterpolatedCar({
               ? rawExtraPredict > 2
                 ? rawExtraPredict / 1000
                 : rawExtraPredict
-              : Math.min(0.12, approxOneWay / 1000);
+              : Math.min(0.1, approxOneWay / 1000);
           const dt = Math.min(0.5, baseDt + extraPredictSec);
           sampledX = last.x + (last.vx || 0) * dt;
           sampledY = last.y + (last.vy || 0) * dt;
@@ -458,7 +458,7 @@ export default function InterpolatedCar({
             ? rawExtra > 2
               ? rawExtra / 1000
               : rawExtra
-            : Math.min(0.18, approxOneWay / 1000);
+            : Math.min(0.1, approxOneWay / 1000);
         const predictedLead = authSpeed * extraSec; // units
 
         // effective max offset should be at least tuned maxOffset but also cover predicted lead

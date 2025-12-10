@@ -30,6 +30,11 @@ import {
 } from "@/lib/matchStore";
 import { getRoom, MATCH_DURATION_MS } from "@/lib/gameState";
 
+// Cache recent owner checks to avoid hitting Redis every poll when we already
+// own the match and periodic loops are healthy.
+let lastOwnerCheckAt = 0;
+const OWNER_CHECK_CACHE_MS = 500;
+
 const nowMs = () => Number(process.hrtime.bigint() / BigInt(1e6));
 const LOG_THRESHOLD = 1;
 
@@ -72,6 +77,17 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { playerId, name, steer, throttle } = body;
 
+    // Per-request caches to avoid redundant Redis lookups
+    let ownerPromise: Promise<string | null> | null = null;
+    const getOwnerCached = () =>
+      ownerPromise ? ownerPromise : (ownerPromise = getCurrentMatchOwner());
+
+    let sharedTokenPromise: Promise<string | null> | null = null;
+    const getSharedTokenCached = () =>
+      sharedTokenPromise
+        ? sharedTokenPromise
+        : (sharedTokenPromise = getCurrentMatchToken());
+
     if (!playerId || !name) {
       return NextResponse.json(
         { error: "Missing required fields" },
@@ -83,31 +99,42 @@ export async function POST(request: NextRequest) {
     // in-memory room uses the same race start/end times. Expose adoptOk
     // in the response for client-side diagnostics.
     let adoptOk: boolean | null = null;
+    let adoptMs = 0;
+    const canonicalToken = getMatchToken();
     try {
       if (body.matchToken) {
-        const ok = await adoptMatchFromToken(body.matchToken);
-        adoptOk = !!ok;
-        if (ok) {
-          // include a quick log for diagnostics
-          console.log(`[api/game] adopted match token from client`);
-          try {
-            // Ensure owner periodic tasks are running if we became the owner
-            // (defensive: often adoptMatchFromToken starts timers, but this
-            // guarantees ticks in case of a race).
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const gs = await Promise.resolve().then(() =>
-              require("@/lib/gameState")
-            );
-            if (gs && typeof gs.ensureOwnerPeriodicTasks === "function") {
-              try {
-                await gs.ensureOwnerPeriodicTasks();
-              } catch (e) {}
-            }
-          } catch (e) {}
+        // If the client token already matches our canonical token, skip
+        // adoption to avoid redundant Redis reads/writes.
+        if (body.matchToken === canonicalToken) {
+          adoptOk = true;
+          adoptMs = 0;
         } else {
-          console.log(
-            `[api/game] adoptMatchFromToken returned false for provided token`
-          );
+          const tAdopt = nowMs();
+          const ok = await adoptMatchFromToken(body.matchToken);
+          adoptMs = nowMs() - tAdopt;
+          adoptOk = !!ok;
+          if (ok) {
+            // include a quick log for diagnostics
+            console.log(`[api/game] adopted match token from client`);
+            try {
+              // Ensure owner periodic tasks are running if we became the owner
+              // (defensive: often adoptMatchFromToken starts timers, but this
+              // guarantees ticks in case of a race).
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              const gs = await Promise.resolve().then(() =>
+                require("@/lib/gameState")
+              );
+              if (gs && typeof gs.ensureOwnerPeriodicTasks === "function") {
+                try {
+                  await gs.ensureOwnerPeriodicTasks();
+                } catch (e) {}
+              }
+            } catch (e) {}
+          } else {
+            console.log(
+              `[api/game] adoptMatchFromToken returned false for provided token`
+            );
+          }
         }
       }
     } catch (e) {
@@ -118,118 +145,152 @@ export async function POST(request: NextRequest) {
     // snapshot (served by the owner) so read-only workers serve up-to-date state.
     // Also check if owner has expired and we should take over.
     let ownerTakenOver = false;
+    let ownerCheckMs = 0;
+    let ownerCheckStart = 0;
     try {
-      const owner = await getCurrentMatchOwner();
+      ownerCheckStart = nowMs();
+      let owner = await getOwnerCached();
       const currentState = getGameState();
 
-      // Check for owner takeover opportunity during racing
-      if (currentState === "racing" && body.matchToken) {
-        const ownerTtl = await getMatchOwnerTtl();
-        // ownerTtl: null = couldn't read, -2 = key missing, -1 = no TTL, >0 = ms remaining
-        const ownerExpired = ownerTtl !== null && ownerTtl <= 0;
-        const noOwner = !owner;
+      // Ultra-fast path: if we are already the owner, skip TTL/snapshot work.
+      // This keeps the hot path near 0ms while still allowing non-owners to
+      // perform takeover/snapshot sync. Refresh a lightweight timestamp so we
+      // can still rate-limit future expensive checks if needed.
+      const isSelfOwner = owner === getInstanceId();
 
-        if (ownerExpired || noOwner) {
-          // Try to claim ownership by force-setting the owner key.
-          // refreshMatchOwner doesn't use NX, so it will overwrite any stale owner.
-          try {
-            const claimed = await refreshMatchOwner(
-              getInstanceId(),
-              MATCH_DURATION_MS
-            );
-            if (claimed) {
-              ownerTakenOver = true;
-              console.log(
-                `[api/game] TAKEOVER: claimed ownership after owner expired/missing (instance=${getInstanceId()}, ownerTtl=${ownerTtl})`
+      // Fast-path cache for non-owners: if we just checked very recently and
+      // periodic loops are running, skip redundant TTL/snapshot reads.
+      const cacheAge = nowMs() - lastOwnerCheckAt;
+      const cacheValid =
+        isPeriodicPhysicsRunning() &&
+        isPeriodicSnapshotRunning() &&
+        cacheAge >= 0 &&
+        cacheAge < OWNER_CHECK_CACHE_MS;
+
+      if (isSelfOwner) {
+        lastOwnerCheckAt = nowMs();
+      }
+
+      if (!isSelfOwner && !cacheValid) {
+        lastOwnerCheckAt = nowMs();
+
+        // Check for owner takeover opportunity during racing
+        if (currentState === "racing" && body.matchToken) {
+          const ownerTtl = await getMatchOwnerTtl();
+          // ownerTtl: null = couldn't read, -2 = key missing, -1 = no TTL, >0 = ms remaining
+          const ownerExpired = ownerTtl !== null && ownerTtl <= 0;
+          const noOwner = !owner;
+
+          if (ownerExpired || noOwner) {
+            // Try to claim ownership by force-setting the owner key.
+            // refreshMatchOwner doesn't use NX, so it will overwrite any stale owner.
+            try {
+              const claimed = await refreshMatchOwner(
+                getInstanceId(),
+                MATCH_DURATION_MS
               );
+              if (claimed) {
+                ownerTakenOver = true;
+                ownerPromise = Promise.resolve(getInstanceId());
+                owner = getInstanceId();
+                console.log(
+                  `[api/game] TAKEOVER: claimed ownership after owner expired/missing (instance=${getInstanceId()}, ownerTtl=${ownerTtl})`
+                );
 
-              // CRITICAL: Load the latest snapshot so we continue from where the old owner left off
-              try {
-                const snap = await getMatchSnapshot();
-                if (snap) {
-                  const r = getRoom();
-                  if (Array.isArray(snap.destructibles)) {
-                    r.destructibles = new Map(
-                      snap.destructibles.map((d: any) => [d.id, d])
+                // CRITICAL: Load the latest snapshot so we continue from where the old owner left off
+                try {
+                  const snap = await getMatchSnapshot();
+                  if (snap) {
+                    const r = getRoom();
+                    if (Array.isArray(snap.destructibles)) {
+                      r.destructibles = new Map(
+                        snap.destructibles.map((d: any) => [d.id, d])
+                      );
+                    }
+                    r.deliveries = Array.isArray(snap.deliveries)
+                      ? snap.deliveries
+                      : [];
+                    r.powerUps = Array.isArray(snap.powerUps)
+                      ? snap.powerUps
+                      : [];
+                    r.leaderboard = Array.isArray(snap.leaderboard)
+                      ? snap.leaderboard
+                      : [];
+                    r.events = Array.isArray(snap.events) ? snap.events : [];
+                    if (Array.isArray(snap.players)) {
+                      r.players = new Map(
+                        snap.players.map((p: any) => [p.id, p])
+                      );
+                    }
+                    if (typeof snap.raceStartTime === "number")
+                      r.raceStartTime = snap.raceStartTime;
+                    if (typeof snap.raceEndTime === "number")
+                      r.raceEndTime = snap.raceEndTime;
+                    r.lastPhysicsUpdate = Date.now();
+                    console.log(
+                      `[api/game] TAKEOVER: loaded snapshot with ${
+                        snap.players?.length || 0
+                      } players`
                     );
                   }
-                  r.deliveries = Array.isArray(snap.deliveries)
-                    ? snap.deliveries
-                    : [];
-                  r.powerUps = Array.isArray(snap.powerUps)
-                    ? snap.powerUps
-                    : [];
-                  r.leaderboard = Array.isArray(snap.leaderboard)
-                    ? snap.leaderboard
-                    : [];
-                  r.events = Array.isArray(snap.events) ? snap.events : [];
-                  if (Array.isArray(snap.players)) {
-                    r.players = new Map(
-                      snap.players.map((p: any) => [p.id, p])
-                    );
-                  }
-                  if (typeof snap.raceStartTime === "number")
-                    r.raceStartTime = snap.raceStartTime;
-                  if (typeof snap.raceEndTime === "number")
-                    r.raceEndTime = snap.raceEndTime;
-                  r.lastPhysicsUpdate = Date.now();
-                  console.log(
-                    `[api/game] TAKEOVER: loaded snapshot with ${
-                      snap.players?.length || 0
-                    } players`
+                } catch (snapErr) {
+                  console.warn(
+                    "[api/game] takeover snapshot load failed:",
+                    snapErr
                   );
                 }
-              } catch (snapErr) {
-                console.warn(
-                  "[api/game] takeover snapshot load failed:",
-                  snapErr
-                );
-              }
 
-              // Start the physics and snapshot loops
-              try {
-                await ensureOwnerPeriodicTasks();
-              } catch (e) {
-                console.warn(
-                  "[api/game] ensureOwnerPeriodicTasks failed after takeover:",
-                  e
+                // Start the physics and snapshot loops
+                try {
+                  await ensureOwnerPeriodicTasks();
+                } catch (e) {
+                  console.warn(
+                    "[api/game] ensureOwnerPeriodicTasks failed after takeover:",
+                    e
+                  );
+                }
+              }
+            } catch (e) {
+              console.warn("[api/game] takeover claim failed:", e);
+            }
+          }
+        }
+
+        // If we're not the owner (and didn't just take over), apply snapshot
+        if (owner && owner !== getInstanceId() && !ownerTakenOver) {
+          const snap = await getMatchSnapshot();
+          if (snap) {
+            try {
+              const r = getRoom();
+              if (Array.isArray(snap.destructibles)) {
+                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                // @ts-ignore
+                r.destructibles = new Map(
+                  snap.destructibles.map((d: any) => [d.id, d])
                 );
               }
+              r.deliveries = Array.isArray(snap.deliveries)
+                ? snap.deliveries
+                : [];
+              r.powerUps = Array.isArray(snap.powerUps) ? snap.powerUps : [];
+              r.leaderboard = Array.isArray(snap.leaderboard)
+                ? snap.leaderboard
+                : [];
+              r.events = Array.isArray(snap.events) ? snap.events : [];
+              r.lastPhysicsUpdate = Date.now();
+            } catch (err) {
+              console.warn("[api/game] failed to apply snapshot:", err);
             }
-          } catch (e) {
-            console.warn("[api/game] takeover claim failed:", e);
           }
         }
       }
-
-      // If we're not the owner (and didn't just take over), apply snapshot
-      if (owner && owner !== getInstanceId() && !ownerTakenOver) {
-        const snap = await getMatchSnapshot();
-        if (snap) {
-          try {
-            const r = getRoom();
-            if (Array.isArray(snap.destructibles)) {
-              // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-              // @ts-ignore
-              r.destructibles = new Map(
-                snap.destructibles.map((d: any) => [d.id, d])
-              );
-            }
-            r.deliveries = Array.isArray(snap.deliveries)
-              ? snap.deliveries
-              : [];
-            r.powerUps = Array.isArray(snap.powerUps) ? snap.powerUps : [];
-            r.leaderboard = Array.isArray(snap.leaderboard)
-              ? snap.leaderboard
-              : [];
-            r.events = Array.isArray(snap.events) ? snap.events : [];
-            r.lastPhysicsUpdate = Date.now();
-          } catch (err) {
-            console.warn("[api/game] failed to apply snapshot:", err);
-          }
-        }
+      if (cacheValid) {
+        lastOwnerCheckAt = nowMs();
       }
+
+      ownerCheckMs = nowMs() - ownerCheckStart;
     } catch (err) {
+      ownerCheckMs = nowMs() - ownerCheckStart;
       console.warn("[api/game] owner check/snapshot failed:", err);
     }
 
@@ -259,7 +320,7 @@ export async function POST(request: NextRequest) {
     let snapshotPlayers: any[] | null = null;
     try {
       if (!isOwner) {
-        const owner = await getCurrentMatchOwner();
+        const owner = await getOwnerCached();
         isOwner = !owner || owner === getInstanceId();
       }
 
@@ -339,6 +400,8 @@ export async function POST(request: NextRequest) {
 
     // Serialize players for the requesting client. If a player has an active
     // invisibility powerup, hide them from other clients (but not themselves).
+    let serializePlayersMs = 0;
+    const tSerialize = nowMs();
     const serializedPlayers = players.map((p) => {
       const isInvisible =
         p.activePowerUps &&
@@ -358,19 +421,28 @@ export async function POST(request: NextRequest) {
       );
       return { ...p, damagePercent };
     });
+    serializePlayersMs = nowMs() - tSerialize;
 
-    const gameStateRes = await measure("getGameState", () => getGameState());
-    const destructiblesRes = await measure("getDestructibleState", () =>
-      getDestructibleState()
-    );
-    const timerRes = await measure("getTimerState", () => getTimerState());
-    const leaderboardRes = await measure("getLeaderboard", () =>
-      getLeaderboard()
-    );
-    const deliveriesRes = await measure("getDeliveries", () => getDeliveries());
-    const eventsRes = await measure("getMatchEvents", () => getMatchEvents());
-    const powerUpsRes = await measure("getPowerUps", () => getPowerUps());
-    const serverFpsRes = await measure("getServerFps", () => getServerFps());
+    // Parallelize read-only fetches to cut per-request latency
+    const [
+      gameStateRes,
+      destructiblesRes,
+      timerRes,
+      leaderboardRes,
+      deliveriesRes,
+      eventsRes,
+      powerUpsRes,
+      serverFpsRes,
+    ] = await Promise.all([
+      measure("getGameState", () => getGameState()),
+      measure("getDestructibleState", () => getDestructibleState()),
+      measure("getTimerState", () => getTimerState()),
+      measure("getLeaderboard", () => getLeaderboard()),
+      measure("getDeliveries", () => getDeliveries()),
+      measure("getMatchEvents", () => getMatchEvents()),
+      measure("getPowerUps", () => getPowerUps()),
+      measure("getServerFps", () => getServerFps()),
+    ]);
 
     // If the timer shows expired but periodic physics didn't finalize
     // yet (rare), force finalize here to ensure clients transition.
@@ -387,13 +459,28 @@ export async function POST(request: NextRequest) {
       serverSendMs,
       processingMs: serverSendMs - serverReceiveMs,
       redisConnectMs: getLastRedisConnectMs(),
+      breakdown: {
+        createOrUpdateMs: createRes.ms,
+        updatePhysicsMs: physicsRes.ms,
+        gameStateMs: gameStateRes.ms,
+        destructiblesMs: destructiblesRes.ms,
+        timerMs: timerRes.ms,
+        leaderboardMs: leaderboardRes.ms,
+        deliveriesMs: deliveriesRes.ms,
+        eventsMs: eventsRes.ms,
+        powerUpsMs: powerUpsRes.ms,
+        serverFpsMs: serverFpsRes.ms,
+        adoptMs,
+        ownerCheckMs,
+        serializePlayersMs,
+      },
     };
 
     // Read the shared store token (if any) to help debug cross-instance races
     let sharedToken: string | null = null;
     try {
-      if (typeof getCurrentMatchToken === "function") {
-        sharedToken = await getCurrentMatchToken();
+      if (typeof getSharedTokenCached === "function") {
+        sharedToken = await getSharedTokenCached();
       }
     } catch (e) {
       console.warn("[api/game] getCurrentMatchToken failed:", e);
@@ -415,7 +502,7 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        const ownerId = await getCurrentMatchOwner();
+        const ownerId = await getOwnerCached();
         const isOwner = ownerId === getInstanceId();
         const periodicPhysics = isPeriodicPhysicsRunning();
         const periodicSnapshot = isPeriodicSnapshotRunning();
@@ -458,7 +545,7 @@ export async function POST(request: NextRequest) {
       timing,
       ownerId: await (async () => {
         try {
-          return await getCurrentMatchOwner();
+          return await getOwnerCached();
         } catch (e) {
           return null;
         }
@@ -466,7 +553,7 @@ export async function POST(request: NextRequest) {
       isOwner:
         (await (async () => {
           try {
-            return await getCurrentMatchOwner();
+            return await getOwnerCached();
           } catch (e) {
             return null;
           }

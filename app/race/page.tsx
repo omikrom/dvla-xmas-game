@@ -1296,13 +1296,12 @@ function RaceClient() {
               } else {
                 window.dispatchEvent(new CustomEvent("audio:playLobby"));
               }
-              // If the game has just finished, clear the stored match token and
-              // POST the final leaderboard to the instance leaderboard API
+              // If the game has just finished, POST the final leaderboard to the
+              // instance leaderboard API. Keep the matchToken so a transient
+              // state blip doesn't orphan the client mid-race; the server will
+              // overwrite with a new token when a fresh match starts.
               try {
                 if (newState === "finished") {
-                  try {
-                    sessionStorage.removeItem("matchToken");
-                  } catch (e) {}
                   (async () => {
                     try {
                       const body = { leaderboard: data.leaderboard || [] };
@@ -2283,11 +2282,17 @@ function RaceClient() {
               {/* Scene fog for depth / snow haze. Controlled by debug UI (toggle with ` key). */}
               {fogMode === "exp2" && (
                 // FogExp2: soft exponential haze tuned by density - wintery blue-white
-                <fogExp2 attach="fog" args={[nightMode ? 0x0a1628 : 0x1e3a5f, fogDensity]} />
+                <fogExp2
+                  attach="fog"
+                  args={[nightMode ? 0x0a1628 : 0x1e3a5f, fogDensity]}
+                />
               )}
               {fogMode === "linear" && (
                 // Linear fog: start/end (useful when camera is far away)
-                <fog attach="fog" args={[nightMode ? 0x0a1628 : 0x1e3a5f, fogStart, fogEnd]} />
+                <fog
+                  attach="fog"
+                  args={[nightMode ? 0x0a1628 : 0x1e3a5f, fogStart, fogEnd]}
+                />
               )}
               {/* Lighting — values adjust when nightMode is active */}
               {/* Warm ambient for cozy Christmas feel */}
@@ -2301,6 +2306,7 @@ function RaceClient() {
                 groundColor={nightMode ? "#1e3a5f" : "#fef3c7"}
                 intensity={nightMode ? 0.35 : 0.5}
               />
+              {/* Moon removed per request */}
               {/* Main sun/moon light */}
               <directionalLight
                 position={[25, 35, 20]}
@@ -2340,7 +2346,7 @@ function RaceClient() {
                 color="#93c5fd"
                 castShadow={false}
               />
-              
+
               {/* === CHRISTMAS ACCENT LIGHTS === */}
               {/* Red Christmas lights - scattered around */}
               {[
@@ -2406,7 +2412,7 @@ function RaceClient() {
                   color="#38bdf8"
                 />
               ))}
-              
+
               {/* Winter night environment */}
               <Environment preset={nightMode ? "night" : "sunset"} blur={0.7} />
 
@@ -2438,7 +2444,11 @@ Cannot read properties of undefined (reading 'replace')
                   blendFunction={1}
                   offset={[0.0006, 0.0012]}
                 /> */}
-                <Vignette eskil={false} offset={0.3} darkness={nightMode ? 0.6 : 0.45} />
+                <Vignette
+                  eskil={false}
+                  offset={0.3}
+                  darkness={nightMode ? 0.6 : 0.45}
+                />
                 <Noise opacity={0.025} />
                 <SMAA />
               </EffectComposer>
