@@ -347,7 +347,12 @@ export async function POST(request: NextRequest) {
     try {
       if (!isOwner) {
         const owner = await getOwnerCached();
-        isOwner = !owner || owner === getInstanceId();
+        // Only claim ownership if we explicitly match the owner ID.
+        // If owner is null/undefined (Redis miss), we should NOT assume we're owner
+        // as that causes state divergence with the actual owner.
+        // We only become owner through explicit takeover or if we're running periodic tasks.
+        isOwner = owner === getInstanceId() || 
+          (isPeriodicPhysicsRunning() && isPeriodicSnapshotRunning());
       }
 
       // For non-owner workers during an active race, prefer returning snapshot
@@ -359,8 +364,9 @@ export async function POST(request: NextRequest) {
         }
       }
     } catch (e) {
-      // If we can't determine ownership, assume we're the owner to avoid breaking
-      isOwner = true;
+      // If we can't determine ownership, check if we have periodic tasks running.
+      // Only assume owner if we're actually running the physics loop.
+      isOwner = isPeriodicPhysicsRunning() && isPeriodicSnapshotRunning();
     }
 
     // Update player input. If client provided an input sequence number (`seq`),
@@ -423,6 +429,14 @@ export async function POST(request: NextRequest) {
       }
     } else {
       players = physicsRes.result as any[];
+      // Log warning if non-owner is using local physics (indicates snapshot sync failure)
+      if (!isOwner && getGameState() === "racing") {
+        console.warn(
+          `[api/game] NON-OWNER using local physics! instance=${getInstanceId()}, ` +
+          `snapshotPlayers=${snapshotPlayers?.length ?? 'null'}, ` +
+          `gameState=${getGameState()}`
+        );
+      }
     }
     const now = Date.now();
 

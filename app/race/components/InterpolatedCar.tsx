@@ -321,7 +321,9 @@ export default function InterpolatedCar({
             ? Math.max(0.01, tuner.predDt / 1000)
             : 0.125; // ms->s (default 125ms)
         const forward = (inp.throttle || 0) * MAX_PRED_SPEED * predDt;
-        const steerEffect = (inp.steer || 0) * 0.25 * predDt; // smaller angular effect
+        // Increased steer effect multiplier for more responsive local turning
+        const steerMultiplier = typeof tuner.predSteerMult === "number" ? tuner.predSteerMult : 1.0;
+        const steerEffect = (inp.steer || 0) * steerMultiplier * predDt;
         sampledX += Math.sin(sampledAngle) * forward;
         sampledY += Math.cos(sampledAngle) * forward;
         sampledAngle += steerEffect;
@@ -694,10 +696,10 @@ export default function InterpolatedCar({
     let angleDiff = targetRot.current - currentRotY;
     if (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     if (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-    // Use exponential smoothing for rotation - factor of 8 gives smooth but responsive turning
+    // Use exponential smoothing for rotation - higher factor = snappier rotation
     const rotSmoothFactor = typeof tuner.rotationSmoothFactor === "number" 
       ? tuner.rotationSmoothFactor 
-      : 8;
+      : 15; // increased from 8 for more responsive turning
     const rotSmoothing = 1 - Math.exp(-delta * rotSmoothFactor);
     groupRef.current.rotation.y += angleDiff * rotSmoothing;
   });

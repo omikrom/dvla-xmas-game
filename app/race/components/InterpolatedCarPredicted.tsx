@@ -17,7 +17,7 @@ const CAR_DESTROY_THRESHOLD = 150;
 const BASE_MAX_SPEED = 25;
 const BASE_ACCELERATION = 20;
 const BASE_DECELERATION = 15;
-const BASE_TURN_SPEED = 3.0;
+const BASE_TURN_SPEED = 2.2; // reduced for wider turning circle
 // Client-side mirror of server periodic physics tick (ms) to align replay steps
 const SERVER_TICK_MS = 50;
 

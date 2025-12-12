@@ -2554,7 +2554,7 @@ export function updatePhysics(): PlayerCar[] {
   const baseMaxSpeed = 25; // Maximum speed before damage penalties
   const baseAcceleration = 20; // Acceleration rate before damage
   const baseDeceleration = 15; // Natural slowdown baseline
-  const baseTurnSpeed = 3.0; // radians per second
+  const baseTurnSpeed = 2.2; // radians per second (reduced for wider turning circle)
 
   // Always update physics, regardless of game state
   const gravity = -25; // Gravity acceleration

@@ -551,6 +551,8 @@ function RaceClient() {
   const [fogStart, setFogStart] = useState<number>(10);
   const [fogEnd, setFogEnd] = useState<number>(80);
   const [nightMode, setNightMode] = useState<boolean>(true);
+  // Low-power GPU detection: reduces quality on Mac, mobile, and integrated GPUs
+  const [lowPowerMode, setLowPowerMode] = useState<boolean>(false);
   const destructiblesRef = useRef<DestructibleState[]>([]);
   const knownEventIdsRef = useRef<Set<string>>(new Set());
   const [infoOpen, setInfoOpen] = useState(false);
@@ -699,6 +701,64 @@ function RaceClient() {
       window.removeEventListener("orientationchange", onOrient);
       window.removeEventListener("resize", onMobileChange);
     };
+  }, []);
+
+  // Detect low-power GPU (Mac, mobile, integrated graphics) and reduce quality
+  useEffect(() => {
+    const detectLowPowerGPU = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+        if (!gl) {
+          setLowPowerMode(true);
+          return;
+        }
+        
+        const debugInfo = (gl as WebGLRenderingContext).getExtension("WEBGL_debug_renderer_info");
+        if (!debugInfo) {
+          // Can't detect GPU, assume low power on mobile/Mac
+          const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
+          const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+          setLowPowerMode(isMac || isMobileUA);
+          return;
+        }
+        
+        const renderer = (gl as WebGLRenderingContext).getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || "";
+        const vendor = (gl as WebGLRenderingContext).getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || "";
+        
+        // Patterns indicating low-power GPU
+        const lowPowerPatterns = [
+          /Intel/i,           // Intel integrated graphics
+          /Apple/i,           // Apple GPU (M1/M2 are capable but Safari has quirks)
+          /Mali/i,            // ARM Mali (mobile)
+          /Adreno/i,          // Qualcomm Adreno (mobile)
+          /PowerVR/i,         // Imagination PowerVR (mobile)
+          /SwiftShader/i,     // Software renderer
+          /llvmpipe/i,        // Software renderer
+          /ANGLE/i,           // Compatibility layer (often indicates issues)
+        ];
+        
+        const isLowPower = lowPowerPatterns.some(p => p.test(renderer) || p.test(vendor));
+        const isSafari = /Safari/i.test(navigator.userAgent) && !/Chrome/i.test(navigator.userAgent);
+        
+        // Also check for high pixel ratio on Mac (Retina) which stresses GPU
+        const isHighDPR = window.devicePixelRatio > 1.5;
+        const isMac = /Mac/i.test(navigator.userAgent);
+        
+        const shouldUseLowPower = isLowPower || (isSafari && isMac) || (isMac && isHighDPR);
+        
+        if (shouldUseLowPower) {
+          console.log(`[GPU Detection] Low-power mode enabled: renderer="${renderer}" vendor="${vendor}" safari=${isSafari} mac=${isMac} dpr=${window.devicePixelRatio}`);
+        }
+        
+        setLowPowerMode(shouldUseLowPower);
+      } catch (e) {
+        console.warn("[GPU Detection] Failed to detect GPU, assuming low power:", e);
+        setLowPowerMode(true);
+      }
+    };
+    
+    detectLowPowerGPU();
   }, []);
 
   const enqueueScoreBurst = useCallback((amount: number) => {
@@ -2216,7 +2276,10 @@ function RaceClient() {
               style={{ display: "block", width: "100%", height: "100%" }}
               onCreated={({ gl }) => {
                 glRef.current = gl;
-                const dpr = Math.max(1, window.devicePixelRatio || 1);
+                // Cap pixel ratio on low-power devices (detected via lowPowerMode state)
+                // This reduces render resolution significantly on Retina/high-DPI displays
+                const rawDpr = window.devicePixelRatio || 1;
+                const dpr = lowPowerMode ? Math.min(rawDpr, 1.5) : Math.max(1, rawDpr);
                 try {
                   gl.setPixelRatio(dpr);
                 } catch (e) {}
@@ -2307,14 +2370,14 @@ function RaceClient() {
                 intensity={nightMode ? 0.35 : 0.5}
               />
               {/* Moon removed per request */}
-              {/* Main sun/moon light */}
+              {/* Main sun/moon light - reduced shadow quality on low-power GPUs */}
               <directionalLight
                 position={[25, 35, 20]}
                 intensity={nightMode ? 0.5 : 0.85}
                 color={nightMode ? "#c7d2fe" : "#fff7ed"}
                 castShadow
-                shadow-mapSize-width={2048}
-                shadow-mapSize-height={2048}
+                shadow-mapSize-width={lowPowerMode ? 1024 : 2048}
+                shadow-mapSize-height={lowPowerMode ? 1024 : 2048}
                 shadow-camera-far={60}
                 shadow-camera-left={-40}
                 shadow-camera-right={40}
@@ -2322,9 +2385,9 @@ function RaceClient() {
                 shadow-camera-bottom={-40}
                 shadow-bias={-0.0005}
                 shadow-normalBias={0.05}
-                shadow-radius={2}
+                shadow-radius={lowPowerMode ? 1 : 2}
               />
-              {/* Warm golden spotlight - like Christmas star */}
+              {/* Warm golden spotlight - shadows disabled on low-power GPUs */}
               <spotLight
                 position={[0, 50, 15]}
                 intensity={nightMode ? 1.2 : 0.8}
@@ -2332,7 +2395,7 @@ function RaceClient() {
                 penumbra={0.7}
                 decay={1.2}
                 color="#fcd34d"
-                castShadow
+                castShadow={!lowPowerMode}
                 shadow-bias={-0.0005}
                 shadow-normalBias={0.02}
               />
@@ -2430,37 +2493,49 @@ function RaceClient() {
               )}
 
               {/* Postprocessing: Bloom via @react-three/postprocessing */}
-              <EffectComposer multisampling={0}>
-                {/* Christmas glow: lower threshold catches colored lights, higher intensity for festive sparkle */}
-                <Bloom
-                  luminanceThreshold={0.6}
-                  luminanceSmoothing={0.15}
-                  intensity={nightMode ? 0.8 : 0.6}
-                  radius={0.5}
-                />
-                {/* // Runtime TypeError
-Cannot read properties of undefined (reading 'replace')
-                <ChromaticAberration
-                  blendFunction={1}
-                  offset={[0.0006, 0.0012]}
-                /> */}
-                <Vignette
-                  eskil={false}
-                  offset={0.3}
-                  darkness={nightMode ? 0.6 : 0.45}
-                />
-                <Noise opacity={0.025} />
-                <SMAA />
-              </EffectComposer>
+              {/* Simplified effects on low-power GPUs for better performance */}
+              {lowPowerMode ? (
+                // Minimal post-processing for low-power GPUs
+                <EffectComposer multisampling={0}>
+                  <Bloom
+                    luminanceThreshold={0.8}
+                    luminanceSmoothing={0.15}
+                    intensity={0.3}
+                    radius={0.3}
+                  />
+                  <SMAA />
+                </EffectComposer>
+              ) : (
+                // Full post-processing for capable GPUs
+                <EffectComposer multisampling={0}>
+                  <Bloom
+                    luminanceThreshold={0.6}
+                    luminanceSmoothing={0.15}
+                    intensity={nightMode ? 0.8 : 0.6}
+                    radius={0.5}
+                  />
+                  <Vignette
+                    eskil={false}
+                    offset={0.3}
+                    darkness={nightMode ? 0.6 : 0.45}
+                  />
+                  <Noise opacity={0.025} />
+                  <SMAA />
+                </EffectComposer>
+              )}
 
               {/* Soft contact shadows for objects on the ground */}
-              <ContactShadows
-                position={[0, 0.01, 0]}
-                opacity={0.6}
-                scale={240}
-                blur={2}
-                far={6}
-              />
+              {/* Position raised to 0.05 to avoid Z-fighting with ground plane on some GPUs (especially Mac) */}
+              {/* Disabled entirely on low-power GPUs to avoid rendering issues */}
+              {!lowPowerMode && (
+                <ContactShadows
+                  position={[0, 0.05, 0]}
+                  opacity={0.6}
+                  scale={240}
+                  blur={2}
+                  far={6}
+                />
+              )}
 
               {/* Global snow effect: lightweight world-space snow to add atmosphere. */}
               <Snow position={[0, 0, 0]} count={320} area={80} scale={2} />
