@@ -16,8 +16,10 @@ let cachedMatchToken: string | null = null;
 let cachedMatchOwner: string | null = null;
 let cachedMatchSnapshot: any = null;
 let cachedMatchFetchedAt = 0;
-// Reduced cache TTL for faster cross-worker sync in serverless environment
-const LOCAL_CACHE_MS = Number(process.env.MATCHSTORE_CACHE_MS || 50);
+// Reduced cache TTL for faster cross-worker sync in serverless environment.
+// Lower values improve multi-player consistency at the cost of more Redis round-trips.
+// 25ms provides a good balance for real-time multiplayer.
+const LOCAL_CACHE_MS = Number(process.env.MATCHSTORE_CACHE_MS || 25);
 
 function nowMs() {
   try {

@@ -19,6 +19,7 @@ import {
   isPeriodicSnapshotRunning,
   getServerFps,
   CAR_DESTROY_THRESHOLD,
+  setMapSeed,
 } from "@/lib/gameState";
 import {
   getLastRedisConnectMs,
@@ -32,8 +33,9 @@ import { getRoom, MATCH_DURATION_MS } from "@/lib/gameState";
 
 // Cache recent owner checks to avoid hitting Redis every poll when we already
 // own the match and periodic loops are healthy.
+// Reduced from 500ms to 100ms for better multi-player responsiveness.
 let lastOwnerCheckAt = 0;
-const OWNER_CHECK_CACHE_MS = 500;
+const OWNER_CHECK_CACHE_MS = 100;
 
 const nowMs = () => Number(process.hrtime.bigint() / BigInt(1e6));
 const LOG_THRESHOLD = 1;
@@ -202,6 +204,12 @@ export async function POST(request: NextRequest) {
                   const snap = await getMatchSnapshot();
                   if (snap) {
                     const r = getRoom();
+                    // Apply mapSeed first so any deterministic generation matches
+                    if (snap.mapSeed !== undefined) {
+                      try {
+                        setMapSeed(snap.mapSeed);
+                      } catch (e) {}
+                    }
                     if (Array.isArray(snap.destructibles)) {
                       r.destructibles = new Map(
                         snap.destructibles.map((d: any) => [d.id, d])
@@ -230,7 +238,7 @@ export async function POST(request: NextRequest) {
                     console.log(
                       `[api/game] TAKEOVER: loaded snapshot with ${
                         snap.players?.length || 0
-                      } players`
+                      } players, mapSeed=${snap.mapSeed}`
                     );
                   }
                 } catch (snapErr) {
@@ -257,11 +265,18 @@ export async function POST(request: NextRequest) {
         }
 
         // If we're not the owner (and didn't just take over), apply snapshot
+        // This ensures non-owner workers serve consistent state with the owner
         if (owner && owner !== getInstanceId() && !ownerTakenOver) {
           const snap = await getMatchSnapshot();
           if (snap) {
             try {
               const r = getRoom();
+              // Apply mapSeed first so any deterministic generation matches the owner
+              if (snap.mapSeed !== undefined) {
+                try {
+                  setMapSeed(snap.mapSeed);
+                } catch (e) {}
+              }
               if (Array.isArray(snap.destructibles)) {
                 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
                 // @ts-ignore
@@ -277,6 +292,17 @@ export async function POST(request: NextRequest) {
                 ? snap.leaderboard
                 : [];
               r.events = Array.isArray(snap.events) ? snap.events : [];
+              // Also apply players from snapshot for consistent state
+              if (Array.isArray(snap.players)) {
+                r.players = new Map(snap.players.map((p: any) => [p.id, p]));
+              }
+              // Apply race timing from snapshot
+              if (typeof snap.raceStartTime === "number") {
+                r.raceStartTime = snap.raceStartTime;
+              }
+              if (typeof snap.raceEndTime === "number") {
+                r.raceEndTime = snap.raceEndTime;
+              }
               r.lastPhysicsUpdate = Date.now();
             } catch (err) {
               console.warn("[api/game] failed to apply snapshot:", err);
@@ -365,7 +391,9 @@ export async function POST(request: NextRequest) {
     // snapshot players to reduce position divergence. The owner's snapshot
     // is the source of truth for all other players.
     let players: any[];
+    let usedSnapshot = false;
     if (!isOwner && snapshotPlayers && snapshotPlayers.length > 0) {
+      usedSnapshot = true;
       // Use snapshot as base, but update the requesting player's input state
       const snapMap = new Map(snapshotPlayers.map((p: any) => [p.id, p]));
       const localPlayers = physicsRes.result as any[];
@@ -543,6 +571,8 @@ export async function POST(request: NextRequest) {
       sharedToken,
       adoptOk,
       timing,
+      // Diagnostic: true if this response used snapshot data from the owner
+      usedSnapshot,
       ownerId: await (async () => {
         try {
           return await getOwnerCached();

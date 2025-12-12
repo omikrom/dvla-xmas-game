@@ -623,6 +623,7 @@ export async function adoptMatchFromToken(token?: string | null) {
           );
         }
         // If this worker is the owner, start periodic snapshot persistence
+        // Snapshot interval of 50ms (20Hz) for better multi-player consistency
         try {
           if (amOwner) {
             if (!room.periodicSnapshotHandle) {
@@ -677,8 +678,8 @@ export async function adoptMatchFromToken(token?: string | null) {
                     err
                   );
                 }
-              }, 100) as unknown as ReturnType<typeof setInterval>;
-              logInfo("[GameState] periodic snapshot saver started (owner)");
+              }, 50) as unknown as ReturnType<typeof setInterval>;
+              logInfo("[GameState] periodic snapshot saver started (owner) @ 50ms");
             }
           }
         } catch (e) {
@@ -770,6 +771,8 @@ export async function ensureOwnerPeriodicTasks() {
     }
 
     // Start periodic snapshot saver if missing
+    // Snapshot interval of 50ms (20Hz) provides better multi-player consistency
+    // at the cost of slightly more Redis writes. This matches the physics tick rate.
     try {
       if (!room.periodicSnapshotHandle) {
         room.periodicSnapshotHandle = setInterval(() => {
@@ -784,6 +787,8 @@ export async function ensureOwnerPeriodicTasks() {
               players: Array.from(r.players.values()),
               raceStartTime: r.raceStartTime,
               raceEndTime: r.raceEndTime,
+              // Include mapSeed so non-owner workers can reproduce the same map
+              mapSeed: getMapSeed(),
             };
             // eslint-disable-next-line @typescript-eslint/ban-ts-comment
             // @ts-ignore
@@ -807,8 +812,8 @@ export async function ensureOwnerPeriodicTasks() {
           } catch (err) {
             console.warn("[GameState] periodic snapshot saver error:", err);
           }
-        }, 100) as unknown as ReturnType<typeof setInterval>;
-        logInfo("[GameState] periodic snapshot saver started (ensureOwner)");
+        }, 50) as unknown as ReturnType<typeof setInterval>;
+        logInfo("[GameState] periodic snapshot saver started (ensureOwner) @ 50ms");
       }
     } catch (e) {
       console.warn(
